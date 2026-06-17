@@ -20,13 +20,20 @@
 //   (POSTMORTEM 없이 COOK 종료 불가.) → P1 에서 refine 으로 강제.
 // - 핫픽스는 step_events[type="hotfix"] 로만 저장. RecipeState 미수정 (D-006).
 //
-// 현재는 P0 셸 — 501 응답 + rate limit 만 작동.
-import { CookRunSchema } from "@/lib/schema";
+import {
+  CookRunSchema,
+  RuntimeLogSchema,
+  type CookRun,
+  type RuntimeLog,
+} from "@/lib/schema";
 import { enforceRateLimit, withRateLimitHeaders } from "@/lib/ratelimit";
 import {
   supabaseServerServiceRoleClient,
-  supabaseServerAnonClient,
+  supabaseServerUserClient,
 } from "@/lib/supabase";
+import { authenticateRequest } from "@/lib/auth";
+import { rebuildRuntimeLog } from "@/lib/runtime";
+import { recomputeFingerprint } from "@/lib/fingerprint";
 
 export const runtime = "nodejs";
 
@@ -35,11 +42,13 @@ export async function POST(request: Request): Promise<Response> {
   const gate = await enforceRateLimit(request, "run");
   if (!gate.ok) return gate.response;
 
-  // [2] P0 — server-only Supabase import 가드. 키 부재 시 명시적 에러.
-  void supabaseServerServiceRoleClient;
-  void supabaseServerAnonClient;
+  // [2] 인증 — /api/recipe 와 같은 D-015 경계 정책.
+  const authResult = await authenticateRequest(request);
+  if (!authResult.ok) {
+    return withRateLimitHeaders(authResult.response, gate);
+  }
 
-  // [3] 요청 본문 placeholder. P1 에서 CookRunSchema 로 검증.
+  // [3] 요청 본문 검증.
   let body: unknown;
   try {
     body = await request.json();
@@ -49,31 +58,121 @@ export async function POST(request: Request): Promise<Response> {
       gate,
     );
   }
-  void CookRunSchema; // P1 에서 CookRunSchema.safeParse(body) 후 분기.
-  void body;
 
-  // [4] D-008 용접 호출 골격 (P1):
-  //
-  //   const parsed = CookRunSchema.safeParse(body);
-  //   if (!parsed.success) return 400;
-  //   const run = parsed.data;
-  //
-  //   // 트랜잭션 (Postgres RPC 권장):
-  //   //   1) cook_runs INSERT
-  //   //   2) runtime_logs UPSERT  ← rebuildRuntimeLog(recipe_id, [...runs, run])
-  //   //   3) fingerprints UPSERT  ← recomputeFingerprint(user_id, [...logs])
-  //   // 한 트랜잭션 안에서 셋 다 성공해야 한다. 하나라도 실패하면 전체 롤백.
-  //   //
-  //   // 호출 누락 = §4 용접 깨짐 = welding-inspector BLOCK.
-  //
-  return withRateLimitHeaders(
-    jsonResponse(501, {
-      error: "not_implemented",
-      message:
-        "/api/run 은 P0 셸 단계입니다. CookRun 저장 + RuntimeLog/Fingerprint 갱신은 P1 에서 활성화됩니다.",
-    }),
-    gate,
-  );
+  const parsed = CookRunSchema.safeParse(body);
+  if (!parsed.success) {
+    return withRateLimitHeaders(
+      jsonResponse(400, {
+        error: "invalid_cook_run",
+        message: "조리 결과 형식이 올바르지 않습니다.",
+        details: parsed.error.flatten(),
+      }),
+      gate,
+    );
+  }
+
+  const run = parsed.data;
+  if (run.user_id !== authResult.userId) {
+    return withRateLimitHeaders(
+      jsonResponse(403, {
+        error: "forbidden_user_mismatch",
+        message: "다른 사용자의 조리 기록은 저장할 수 없습니다.",
+      }),
+      gate,
+    );
+  }
+
+  try {
+    const service = supabaseServerServiceRoleClient();
+    const [existingRuns, existingLogs] = await Promise.all([
+      fetchExistingRuns(service, run),
+      fetchExistingRuntimeLogs(service, run.user_id),
+    ]);
+
+    const runtimeLog = rebuildRuntimeLog(run.recipe_id, [
+      ...existingRuns.filter((existing) => existing.id !== run.id),
+      run,
+    ]);
+    const fingerprint = recomputeFingerprint(
+      run.user_id,
+      mergeRuntimeLogs(existingLogs, runtimeLog),
+    );
+
+    const userClient = supabaseServerUserClient(authResult.token);
+    const { error } = await userClient.rpc("save_cook_run", {
+      p_cook_run: run,
+      p_runtime_log: runtimeLog,
+      p_fingerprint: fingerprint,
+    });
+
+    if (error) {
+      return withRateLimitHeaders(
+        jsonResponse(502, {
+          error: "save_cook_run_failed",
+          message: "조리 결과를 저장하지 못했어요. 다시 시도해주세요.",
+        }),
+        gate,
+      );
+    }
+
+    return withRateLimitHeaders(
+      jsonResponse(200, {
+        cookRun: run,
+        runtimeLog,
+        fingerprint,
+        savedAt: new Date().toISOString(),
+      }),
+      gate,
+    );
+  } catch {
+    return withRateLimitHeaders(
+      jsonResponse(502, {
+        error: "run_commit_failed",
+        message: "조리 기록을 학습 루프로 반영하지 못했어요.",
+      }),
+      gate,
+    );
+  }
+}
+
+type SupabaseLike = ReturnType<typeof supabaseServerServiceRoleClient>;
+
+async function fetchExistingRuns(
+  supabase: SupabaseLike,
+  run: CookRun,
+): Promise<CookRun[]> {
+  const { data, error } = await supabase
+    .from("cook_runs")
+    .select("id, recipe_id, user_id, started_at, completed, outcome, step_events")
+    .eq("recipe_id", run.recipe_id)
+    .eq("user_id", run.user_id)
+    .order("started_at", { ascending: true });
+
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => CookRunSchema.parse(row));
+}
+
+async function fetchExistingRuntimeLogs(
+  supabase: SupabaseLike,
+  userId: string,
+): Promise<RuntimeLog[]> {
+  const { data, error } = await supabase
+    .from("runtime_logs")
+    .select("recipe_id, total_runs, known_issues")
+    .eq("user_id", userId);
+
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => RuntimeLogSchema.parse(row));
+}
+
+function mergeRuntimeLogs(
+  existingLogs: readonly RuntimeLog[],
+  nextLog: RuntimeLog,
+): RuntimeLog[] {
+  return [
+    ...existingLogs.filter((log) => log.recipe_id !== nextLog.recipe_id),
+    nextLog,
+  ];
 }
 
 function jsonResponse(status: number, payload: unknown): Response {

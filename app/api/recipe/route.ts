@@ -36,7 +36,7 @@ import { enforceRateLimit, withRateLimitHeaders } from "@/lib/ratelimit";
 import { anthropicApiKey, vibeRecipeModel } from "@/lib/env";
 import { buildSystemPrompt } from "@/lib/prompt";
 import { fetchBuildContext } from "@/lib/buildContext";
-import { supabaseServerAnonClient } from "@/lib/supabase";
+import { authenticateRequest } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -145,54 +145,6 @@ export async function POST(request: Request): Promise<Response> {
       gate,
     );
   }
-}
-
-// ---------------------------------------------------------------------------
-// 인증
-// ---------------------------------------------------------------------------
-
-type AuthOk = { ok: true; userId: string };
-type AuthFailed = { ok: false; response: Response };
-
-async function authenticateRequest(
-  request: Request,
-): Promise<AuthOk | AuthFailed> {
-  const auth =
-    request.headers.get("authorization") ??
-    request.headers.get("Authorization");
-  if (!auth || !auth.toLowerCase().startsWith("bearer ")) {
-    return {
-      ok: false,
-      response: jsonResponse(401, {
-        error: "missing_authorization",
-        message: "로그인이 필요합니다.",
-      }),
-    };
-  }
-  const token = auth.slice("bearer ".length).trim();
-  if (token.length === 0) {
-    return {
-      ok: false,
-      response: jsonResponse(401, {
-        error: "missing_token",
-        message: "로그인이 필요합니다.",
-      }),
-    };
-  }
-  // anon 클라이언트로 토큰 검증. service-role 이 아니다 — 인증 단계에서
-  // RLS 우회는 금지 (R4 가드).
-  const supabase = supabaseServerAnonClient();
-  const { data, error } = await supabase.auth.getUser(token);
-  if (error || !data.user) {
-    return {
-      ok: false,
-      response: jsonResponse(401, {
-        error: "invalid_token",
-        message: "세션이 만료됐어요. 다시 로그인 해주세요.",
-      }),
-    };
-  }
-  return { ok: true, userId: data.user.id };
 }
 
 // ---------------------------------------------------------------------------

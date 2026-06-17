@@ -2,7 +2,7 @@
 
 > 새 파일/모듈을 만들면 여기 갱신한다. Claude Code가 "어디에 뭐가 있나"를 빠르게 파악하기 위한 지도.
 > 상태 표기: ✅ 구현됨 / 🚧 진행중 / 📋 placeholder (시그니처/주석만, 본문 P1+에서 채움)
-> 마지막 갱신: 2026-06-15 (세션 2 — P1 엔진 코어 완료, lib/buildContext.ts 신설 + lib/prompt.ts/api/recipe 본문 승격)
+> 마지막 갱신: 2026-06-18 (세션 3 — P1 Cook 사이드 루프 구현)
 
 ---
 
@@ -11,9 +11,9 @@
 | 경로 | 역할 | 상태 |
 |---|---|---|
 | `app/layout.tsx` | RootLayout(`lang="ko"`). 전역 메타 + body 래퍼. children만 렌더. | ✅ (셸 적정) |
-| `app/page.tsx` | 엔트리. 현 단계는 P0 셸 메시지만 표시. 모드 전환(Build/Cook/Postmortem) 컨테이너는 P1에서 부착. | 📋 (placeholder, P1에서 본문 채움) |
+| `app/page.tsx` | 엔트리. BUILD/COOK/POSTMORTEM 모드 전환 + Supabase bearer JWT/기존 recipe_id 입력 + RecipeState/CookRun 상태 연결. 로그인/recipe row 생성 전까지의 작업용 MVP 컨테이너. | ✅ |
 | `app/api/recipe/route.ts` | BUILD 엔진 라우트. `enforceRateLimit("recipe")` → env 가드 → `RequestBodySchema.safeParse` → `authenticateRequest` (Authorization Bearer JWT → anon 클라 검증 → user_id) → `fetchBuildContext` (D-013 1회 재시도 후 502) → `callEngineWithRetry` (D-004 1회 재시도 → 200 `{ engineResponse, parsedAt }` 또는 502). `splitDiff`는 클라 책임 (응답에 mods 미포함). | ✅ |
-| `app/api/run/route.ts` | COOK→POSTMORTEM 결과 영속 라우트. rate limit 통과 강제 + env 가드 + D-008 트랜잭션 호출 순서(`cook_runs INSERT` → `runtime_logs UPSERT` → `fingerprints UPSERT`)를 골격 주석으로 박음. 현재 501. P1에서 본문 — Postgres RPC 권장. | ✅ (P0 게이트 작동) / 📋 (본문 P1) |
+| `app/api/run/route.ts` | COOK→POSTMORTEM 결과 영속 라우트. rate limit → `authenticateRequest` → `CookRunSchema.safeParse` → 기존 cook_runs/runtime_logs 조회 → `rebuildRuntimeLog` → `recomputeFingerprint` → 사용자 JWT 클라로 `save_cook_run` RPC 단일 호출. | ✅ |
 
 ## 라이브러리 (lib/)
 
@@ -25,17 +25,18 @@
 | `lib/supabase.ts` | 서버 anon 클라이언트(`supabaseServerAnonClient`, RLS 적용) + service-role 클라이언트(`supabaseServerServiceRoleClient`, RLS 우회). 모듈 헤더에 **"localStorage 사용 금지 — D-007"** 명시. `server-only` import로 클라이언트 진입 차단. | ✅ (클라이언트 골격) / 📋 (실 쿼리 헬퍼는 P1) |
 | `lib/prompt.ts` | 페어 쿠킹 시스템 프롬프트 빌더. `buildSystemPrompt({ stage, buildContext, recipeState? })` 본문 — 10절 결합(맹탕 모드 헤더 / 역할 / 파이프라인 / 일괄 위임 키워드 / Fingerprint / known_issues / RecipeState / 불변 규칙 / TASTE 분기 / 출력 계약). `trimKnownIssues(issues, budget=5)` 헬퍼 export — D-012 미해결 우선 N=5. D-014 stage별 TASTE 인용 + `_exhaustive: never` 가드. 순수 함수(env/시각/랜덤/전역 0). | ✅ |
 | `lib/buildContext.ts` | **신설**. `fetchBuildContext({ recipeId, userId })` — service-role 클라이언트로 `runtime_logs` + `fingerprints` 병렬 조회 후 `BuildContextSchema.parse`. recipe_id=null이면 runtime_logs 조회 스킵. 둘 다 null → `cold_start=true` 결정. `.maybeSingle()` 사용으로 row 0 정상 경로. throw는 라우트의 D-013 1회 재시도 catch가 잡음. `import "server-only"`. | ✅ |
-| `lib/diff.ts` | `splitDiff(prev, next): { created, mods }` — 생성은 산출물 카드, 수정만 diff (D-001/D-002). 헤더 주석에 메타포 오용 금지(LLM이 diff 만들지 않음). | 📋 (placeholder, P1에서 본문 채움) |
-| `lib/runtime.ts` | `rebuildRuntimeLog(recipeId, runs): RuntimeLog` — `step_events` 집계 → `known_issues`. 주석에 `"failed_here"`/`"hotfix"` 둘 다 처리 강제 + "호출 누락 = §4 용접 깨짐" 명시. | 📋 (placeholder, P1에서 본문 채움) |
-| `lib/fingerprint.ts` | `recomputeFingerprint(userId, runtimeLogs): Fingerprint` — 여러 레시피의 RuntimeLog 교차분석 → 사람별 부엌 지문. D-007 해자. | 📋 (placeholder, P1에서 본문 채움) |
+| `lib/auth.ts` | **신설**. `authenticateRequest(request)` — Authorization Bearer JWT 검증, anon 클라 `auth.getUser`, `{ userId, token }` 반환. `/api/recipe`와 `/api/run`의 D-015 인증 SSOT. | ✅ |
+| `lib/diff.ts` | `splitDiff(prev, next): { created, modified }` — 새 필드는 created, 기존 필드 변경은 modified로 분리(D-001/D-002). | ✅ |
+| `lib/runtime.ts` | `rebuildRuntimeLog(recipeId, runs): RuntimeLog` — `failed_here`/`hotfix` step_events를 step별 known_issues로 응축. hotfix 5종(D-016) 처리 + 이후 good run이면 resolved 처리. | ✅ |
+| `lib/fingerprint.ts` | `recomputeFingerprint(userId, runtimeLogs): Fingerprint` — RuntimeLog 교차분석으로 trait 생성. D-017 기준(N≥3 + 비율≥0.6)을 적용. | ✅ |
 
 ## 컴포넌트 (components/)
 
 | 파일 | 역할 | 상태 |
 |---|---|---|
-| `components/BuildMode.tsx` | F-1 BUILD UI. 현재는 `"use client"` placeholder + 주석으로 "Fingerprint/RuntimeLog 조회 강제(§4 cold start 명시)" 명시. P1에서 v3 `VibeRecipe.tsx` 자산(파이프라인 스트림·산출물 카드·diff 카드) 포팅. | 📋 (placeholder, P1에서 본문 채움) |
-| `components/CookMode.tsx` | F-2 COOK UI. placeholder + 주석으로 D-005(`timer_sec` 텍스트 파싱 금지) + D-006(hotfix는 RecipeState 변경 금지, `step_events`에만) + §4(Postmortem 자동 진입 강제) 명시. P1에서 타이머 + Wake Lock + 인라인 핫픽스. | 📋 (placeholder, P1에서 본문 채움) |
-| `components/Postmortem.tsx` | F-3 POSTMORTEM UI. placeholder + 주석으로 §4 "건너뛰기 버튼 금지" 명시. P1에서 3단 평가(`outcome`) + 실패 스텝 핀포인트. | 📋 (placeholder, P1에서 본문 채움) |
+| `components/BuildMode.tsx` | F-1 BUILD UI. `/api/recipe` 호출, EngineResponse 병합, `splitDiff` 표시, 샘플 레시피 로드. 현재는 JWT/recipe_id 직접 입력 기반 작업용 MVP. | ✅ |
+| `components/CookMode.tsx` | F-2 COOK UI. 스텝 진행, `timer_sec` 타이머, Notification 요청, Wake Lock fallback, 핫픽스 5종 기록. RecipeState 수정 콜백 없음(D-006). | ✅ |
+| `components/Postmortem.tsx` | F-3 POSTMORTEM UI. 3단 outcome, failed 시 실패 스텝 핀포인트, `/api/run` 제출. 건너뛰기 없음. | ✅ |
 | `components/FingerprintCard.tsx` | (미생성) 부엌 지문 프로필 노출. 전환 비용 가시화. ROADMAP P1 마지막 항목. | 📋 (P1) |
 
 ## 데이터베이스 (supabase/)
@@ -43,12 +44,14 @@
 | 파일 | 역할 | 상태 |
 |---|---|---|
 | `supabase/migrations/0001_init.sql` | 5 테이블 초기 마이그레이션. `recipes`/`recipe_versions`/`cook_runs`/`runtime_logs`/`fingerprints` + `pgcrypto` extension + `touch_updated_at()` 트리거 3종 + RLS 전 테이블 활성화 + `auth.uid() = user_id` 정책. `cook_runs.outcome` CHECK 도메인 + jsonb 컬럼이 Zod 스키마와 1:1 매핑(경계 C). 실제 `supabase db push` 적용은 사용자 측 셋업 후. | ✅ |
+| `supabase/migrations/0002_run_constraint.sql` | P1.B 마이그레이션. `completed=true ⇒ outcome is not null` CHECK + `save_cook_run(p_cook_run, p_runtime_log, p_fingerprint)` RPC. cook_runs INSERT, runtime_logs UPSERT, fingerprints UPSERT를 단일 함수로 묶음. | ✅ |
 
 ## 루트 설정
 
 | 파일 | 역할 | 상태 |
 |---|---|---|
-| `package.json` | Next.js 15 + React 19 + TypeScript + Zod + `@anthropic-ai/sdk` + `@supabase/supabase-js` + `@upstash/ratelimit` + `@upstash/redis` + `server-only` + dev deps. `npm run dev`/`typecheck`/`build` 스크립트. | ✅ |
+| `package.json` | Next.js 15 + React 19 + TypeScript + Zod + `@anthropic-ai/sdk` + `@supabase/supabase-js` + `@upstash/ratelimit` + `@upstash/redis` + `server-only` + dev deps. `npm run dev`/`test`/`typecheck`/`build` 스크립트. | ✅ |
+| `scripts/test.mjs` | TypeScript 테스트 파일을 즉석 transpile해 실행하는 작은 테스트 하네스. `@/` alias를 Node require에 매핑. | ✅ |
 | `tsconfig.json` | `strict: true` + `noUncheckedIndexedAccess` + `@/*` paths. `_workspace` 디렉토리 exclude(임시 산출물이 빌드 그래프 오염 방지). | ✅ |
 | `next.config.ts` | `reactStrictMode: true` + `typedRoutes: true`. P0 단계엔 추가 설정 없음. | ✅ |
 | `.env.example` | 서버 전용 키 정책 명시 — `ANTHROPIC_API_KEY`/`VIBE_RECIPE_MODEL`/`UPSTASH_REDIS_REST_{URL,TOKEN}`/`SUPABASE_*`. 주석으로 **`NEXT_PUBLIC_*` 접두사 사용 금지**(키 노출 차단) + UPSTASH 부재 시 명시적 throw 정책 명시. | ✅ |
@@ -86,11 +89,12 @@
 
 ---
 
-## 현재 상태 요약 (2026-06-15)
+## 현재 상태 요약 (2026-06-18)
 
 - **P0 완료**: rate limit + env 격리 + 셸 부트스트랩 23 파일.
 - **P1 첫 묶음 완료**: 엔진 코어 — `lib/prompt.ts` 본문 + `lib/buildContext.ts` 신설 + `app/api/recipe/route.ts` 본문. welding-inspector P1.T4 PASS (결함 0건). ADR D-012/D-013/D-014 등재.
+- **P1 Cook 사이드 구현**: `lib/auth.ts`, `lib/diff.ts`, `lib/runtime.ts`, `lib/fingerprint.ts`, `/api/run`, `BuildMode`, `CookMode`, `Postmortem`, `app/page.tsx` 본문. ADR D-016/D-017/D-018 등재.
 - **빌드 가능성**: `npm install && npm run typecheck && npm run build`가 server-only 위반을 빌드 타임에 잡는 형태. 사용자가 더미 키 채워 검증 권고 (Anthropic SDK + 인증 흐름 추가됨 — `.env.local` 채워야 런타임 호출 통과).
-- **다음 큰 작업 (P1 후속)**: `app/api/run/route.ts` 본문 → `lib/diff.ts`/`runtime.ts`/`fingerprint.ts` 본문 → `components/{BuildMode,CookMode,Postmortem}.tsx` 본문 → 사용자 인증 흐름(로그인 UI/세션 관리) → `FingerprintCard.tsx`.
-- **용접 강제 상태(§4)**: Line 1(BUILD → known_issues/Fingerprint 주입)이 코드+타입+SSOT 3중 강제로 박힘. Line 2~5(Cook/Postmortem/RuntimeLog/회귀)는 placeholder 그대로 → P1 후속 사이클에서 본문 작성 시 weld-trace 검증.
-- **잔존 위험**: T3 §8 R16~R19 + T4 §6.1 M-1. 모두 의도된 동작 또는 별도 ADR 후보로 분류. 현재 블로커 아님.
+- **다음 큰 작업**: 로그인 UI/세션 영속 + recipe row 생성/저장 API + `FingerprintCard.tsx` + 실제 Supabase end-to-end 저장 검증.
+- **용접 강제 상태(§4)**: BUILD→Context 주입과 Cook→Postmortem→RuntimeLog/Fingerprint RPC 루프가 코드로 연결됨. 단, 실제 저장은 기존 recipe row와 JWT가 필요하다.
+- **잔존 위험**: recipe 생성 API 부재, 로그인/세션 UX 부재, 실제 Supabase 마이그레이션 적용 전 end-to-end 저장 미검증.

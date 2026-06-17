@@ -1,19 +1,83 @@
-// 사람별 부엌 지문 (DATA_MODEL.md §4, D-007 해자).
-//
-// 용접 의존성 (D-008):
-//
-//   RuntimeLog[]  ──cross-recipe analysis──>  Fingerprint.traits
-//      (여러 레시피)                              (사람 단위 패턴)
-//
-// 예시 패턴 (TASTE.md 참조 — 임의 결정 금지, D-009):
-//   - 볶음류 다수에서 강불 스텝에 failed_here 가 몰림 → "heat_power: 강함"
-//   - 단맛을 매번 -2 씩 패치 → "sweet_aversion"
-//
-// 본 파일은 placeholder. 시그니처 가이드 (P1):
-//
-//   recomputeFingerprint(userId: string, logs: RuntimeLog[]): Fingerprint
-//
-// 호출자 (app/api/run/route.ts) 가 RuntimeLog 갱신 직후 호출. 호출 누락은
-// §4 용접 깨짐 = BUILD 가 cold start 로만 동작하는 회귀.
+import type { Fingerprint, RuntimeLog, Trait } from "@/lib/schema";
 
-export {};
+type TraitCandidate = {
+  key: string;
+  label: string;
+  matches: (issue: string) => boolean;
+};
+
+const MIN_OBSERVATIONS = 3;
+const MIN_RATIO = 0.6;
+
+const CANDIDATES: TraitCandidate[] = [
+  {
+    key: "burnt_prone",
+    label: "타는 문제가 반복되는 편",
+    matches: (issue) => issue.includes("타는"),
+  },
+  {
+    key: "salty_prone",
+    label: "짠맛 보정이 자주 필요한 편",
+    matches: (issue) => issue.includes("짠"),
+  },
+  {
+    key: "bland_prone",
+    label: "간이 약해지는 편",
+    matches: (issue) => issue.includes("싱거운"),
+  },
+  {
+    key: "watery_prone",
+    label: "농도 보정이 자주 필요한 편",
+    matches: (issue) => issue.includes("묽은"),
+  },
+];
+
+export function recomputeFingerprint(
+  userId: string,
+  logs: readonly RuntimeLog[],
+): Fingerprint {
+  const totalRuns = logs.reduce((sum, log) => sum + log.total_runs, 0);
+
+  return {
+    user_id: userId,
+    total_runs_all_recipes: totalRuns,
+    traits: CANDIDATES.flatMap((candidate) =>
+      buildTrait(candidate, logs, totalRuns),
+    ),
+  };
+}
+
+function buildTrait(
+  candidate: TraitCandidate,
+  logs: readonly RuntimeLog[],
+  totalRuns: number,
+): Trait[] {
+  if (totalRuns === 0) return [];
+
+  let observations = 0;
+  const evidence = new Set<string>();
+
+  for (const log of logs) {
+    for (const issue of log.known_issues) {
+      if (!candidate.matches(issue.issue)) continue;
+      observations += 1;
+      evidence.add(log.recipe_id);
+    }
+  }
+
+  const confidence = roundConfidence(observations / totalRuns);
+  if (observations < MIN_OBSERVATIONS || confidence < MIN_RATIO) return [];
+
+  return [
+    {
+      key: candidate.key,
+      label: candidate.label,
+      confidence,
+      evidence_run_ids: Array.from(evidence),
+    },
+  ];
+}
+
+function roundConfidence(value: number): number {
+  return Math.round(value * 100) / 100;
+}

@@ -4,6 +4,27 @@
 
 ---
 
+## 세션 3 — P1 Cook 사이드 루프 구현
+
+**일자**: 2026-06-18
+**최종 판정**: 구현 완료, 로컬 검증 대기/진행 기록은 본 세션 하단 참조.
+
+### 한 일
+- `scripts/test.mjs` + `npm test` 추가. `lib/runtime.ts`, `lib/fingerprint.ts`, `lib/diff.ts`에 대한 RED 테스트 작성 후 구현.
+- `lib/auth.ts` 신설. `/api/recipe` 내부 인증 함수를 공통 모듈로 추출.
+- `lib/supabase.ts`에 사용자 JWT 기반 서버 클라이언트 추가. `/api/run`의 RPC 호출이 DB 함수 내부 `auth.uid()`를 통과하도록 함.
+- `app/api/run/route.ts` 본문 구현: CookRun 검증 → 기존 runs/logs 조회 → RuntimeLog 재빌드 → Fingerprint 재계산 → `save_cook_run` RPC 단일 호출.
+- `components/BuildMode.tsx`, `components/CookMode.tsx`, `components/Postmortem.tsx`, `app/page.tsx`를 작업용 MVP UI로 연결.
+- `docs/DECISIONS.md`에 D-016/D-017/D-018 등재. `docs/TASTE.md`, `docs/ROADMAP.md`, `CLAUDE.md` 갱신.
+
+### 남은 제약 / 다음 할 일
+1. 로그인 UI와 세션 영속은 아직 없음. 현재 화면은 Supabase bearer JWT를 직접 입력하는 작업용 형태.
+2. recipe row 생성/저장 API가 아직 없음. `/api/run` 저장은 기존 `recipe_id`가 있어야 성공한다.
+3. `components/FingerprintCard.tsx`는 아직 미생성.
+4. 실제 Supabase 프로젝트에 `0001_init.sql` + `0002_run_constraint.sql` 적용 후 end-to-end 저장 검증 필요.
+
+---
+
 ## 세션 2 — P1 엔진 코어 사이클 (lib/prompt.ts + lib/buildContext.ts 신설 + /api/recipe 본문)
 
 **일자**: 2026-06-14 ~ 2026-06-15

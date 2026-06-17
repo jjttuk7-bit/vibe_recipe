@@ -157,3 +157,4 @@ docs/
 | 2026-06-13 | Phase 6 검증 보강 — (1) welding-architect/inspector/doc-taste-scribe에 `Skill` 도구로 각자의 절차 스킬을 호출하도록 명시, (2) 6개 에이전트 전부에 "재호출 지침" 섹션 추가 | agents/* | 드라이런에서 스킬 호출 명시 누락 + 후속 작업 시 에이전트 측 대응 누락 발견 |
 | 2026-06-14 | P0 사이클 완료 — 셸 부트스트랩 + rate limit + env 격리 + ADR D-011 등재. 신규 파일 23개(`app/*`, `lib/*`, `components/*`, `supabase/migrations/0001_init.sql`, 루트 설정 5종). welding-inspector PASS. | docs/* + 전체 셸 | ROADMAP P0 두 항목 완료 |
 | 2026-06-15 | P1 엔진 코어 완료 — lib/prompt.ts + lib/buildContext.ts(신설) + /api/recipe 본문 + ADR D-012/D-013/D-014 등재. welding-inspector PASS 결함 0건. | docs/* + lib/* + app/api/recipe | ROADMAP P1 첫 묶음 |
+| 2026-06-18 | P1 Cook 사이드 구현 — lib/auth.ts 신설, /api/run RPC 루프, runtime/fingerprint/diff 본문, Build/Cook/Postmortem 작업용 UI, ADR D-016~D-018 등재. | app/* + components/* + lib/* + docs/* | Cook→Postmortem→RuntimeLog/Fingerprint 용접 루프 활성화 |

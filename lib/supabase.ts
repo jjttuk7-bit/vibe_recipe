@@ -36,6 +36,23 @@ export function supabaseServerAnonClient(): SupabaseClient {
   return cachedAnon;
 }
 
+// 사용자 JWT가 붙은 서버 클라이언트.
+// RPC 내부 auth.uid() 검사가 필요한 호출에서 사용한다. service-role 클라이언트로
+// 호출하면 auth.uid()가 null이 되어 SECURITY DEFINER 함수의 R4 가드가 실패한다.
+export function supabaseServerUserClient(accessToken: string): SupabaseClient {
+  return createClient(supabaseUrl(), supabaseAnonKey(), {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+    global: {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  });
+}
+
 let cachedService: SupabaseClient | null = null;
 
 // service-role 클라이언트 (RLS 우회).

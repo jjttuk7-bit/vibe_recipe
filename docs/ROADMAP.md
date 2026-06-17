@@ -12,13 +12,13 @@
 
 ## P1 — MVP 핵심 (용접 루프 완성)
 
-- [ ] `lib/schema.ts`: steps를 `{text, timer_sec}[]`로 (D-005). CookRun/RuntimeLog/Fingerprint 스키마 추가.
+- [x] `lib/schema.ts`: steps를 `{text, timer_sec}[]`로 (D-005). CookRun/RuntimeLog/Fingerprint 스키마 추가.
 - [ ] `lib/prompt.ts`: RuntimeLog.known_issues + Fingerprint.traits 주입 로직 (ENGINE.md §3, 규칙9).
-- [ ] `components/CookMode.tsx`: 스텝 진행 + `timer_sec` 타이머 + Wake Lock + 인라인 핫픽스(D-006).
-- [ ] `components/Postmortem.tsx`: 3단 평가 + 실패 스텝 핀포인트.
-- [ ] `app/api/run/route.ts`: CookRun 저장 → RuntimeLog 갱신 → Fingerprint 재계산. **용접 강제 지점**(D-008).
-- [ ] `lib/runtime.ts` + `lib/fingerprint.ts`: 집계/교차분석 로직.
-- [ ] `lib/supabase.ts` + 테이블 5종 + RLS (DATA_MODEL.md §6).
+- [x] `components/CookMode.tsx`: 스텝 진행 + `timer_sec` 타이머 + Wake Lock + 인라인 핫픽스(D-006).
+- [x] `components/Postmortem.tsx`: 3단 평가 + 실패 스텝 핀포인트.
+- [x] `app/api/run/route.ts`: CookRun 저장 → RuntimeLog 갱신 → Fingerprint 재계산. **용접 강제 지점**(D-008).
+- [x] `lib/runtime.ts` + `lib/fingerprint.ts`: 집계/교차분석 로직.
+- [x] `lib/supabase.ts` + 테이블 5종 + RLS (DATA_MODEL.md §6).
 - [ ] `components/FingerprintCard.tsx`: 부엌 지문 프로필 노출 (전환 비용).
 
 ## P2 — MVP 강화

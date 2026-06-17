@@ -256,3 +256,61 @@
 - **R16(recipe ownership 미검증) 별개 위험**: 본 ADR은 *user_id 확정*까지만 다룸. `body.recipe_id`가 다른 사용자의 레시피라도 `fetchBuildContext`가 `user_id` 매칭으로 null 반환 → cold_start 흐름. 데이터 누수는 없으나 ownership 검증은 별도 ADR(R16 잔존).
 - **P1 후속 사이클 인계**: `/api/run` 본문에서 본 ADR의 `authenticateRequest`를 재사용. 인증 통과 후에만 cook_runs INSERT + runtime_logs UPSERT + fingerprints UPSERT 트랜잭션(D-008) 진입.
 - **사용자 결정 시점**: 본 ADR은 architect 사전 가드 없이 T3 §5(인증 정책 메모) + T4 §3-A + §9(D-015 후보 표현) 응축으로 작성. doc-taste-scribe가 P1 사이클 마무리 단계(2026-06-15)에 ADR 등재 vs P2 이월을 리더에게 컨설팅 → 리더 판단으로 즉시 등재 결정. 본 결정은 D-009(임의 결정 금지) 정신에 따라 컨설팅 절차를 거쳐 확정됨.
+
+---
+
+## D-016. Cook 핫픽스 카테고리 — TASTE §3 4종 + 기타 1종
+
+**맥락**: D-006은 핫픽스가 RecipeState를 수정하지 않고 `CookRun.step_events`에만 기록된다고 정한다. 그러나 Cook UI가 어떤 입력 단위로 핫픽스를 받는지는 미정이었다. 자유 텍스트만 받으면 RuntimeLog 집계가 자연어 처리에 기대게 되고, 카테고리만 강제하면 조리 중의 예외 상황을 놓친다.
+
+**결정**: `StepEvent.type="hotfix"`는 `category` 필드를 필수로 가진다. 카테고리는 `salty | bland | burnt | watery | other` 5종이다.
+
+- `salty`: 너무 짜다
+- `bland`: 싱겁다
+- `burnt`: 탄다
+- `watery`: 묽다
+- `other`: 기타, 자유 텍스트 보조
+
+**이유**: 앞의 4종은 TASTE.md §3 핫픽스 우선순위 표와 1:1로 맞는다. `other`는 새 취향 판단 후보를 수집하는 안전판이다. 카테고리 칩 + optional note 조합은 조리 중 손이 바쁜 상황과 이후 학습 집계를 동시에 만족한다.
+
+**결과**:
+- `lib/schema.ts`의 `StepEventSchema`는 discriminated union이 되었고, `hotfix` 변종만 `category`를 가진다.
+- `components/CookMode.tsx`는 5종 칩으로 핫픽스를 기록한다.
+- `lib/runtime.ts`는 카테고리별 문장으로 `known_issues`를 만든다.
+
+---
+
+## D-017. Fingerprint confidence — 관찰 N≥3 + 비율 ≥0.6
+
+**맥락**: `TraitSchema.confidence`는 0~1 값을 요구하지만, RuntimeLog에서 사람별 trait을 어느 시점에 생성할지 기준이 없었다. TASTE.md §5의 "Fingerprint trait의 임계 confidence" 미정 항목이다.
+
+**결정**: MVP의 Fingerprint trait 생성 기준은 다음과 같다.
+
+1. 같은 trait 후보에 해당하는 관찰이 3회 이상이어야 한다.
+2. `관찰 수 / 전체 조리 횟수`가 0.6 이상이어야 한다.
+3. `confidence`는 위 비율값을 소수 둘째 자리로 반올림한 값이다.
+
+**이유**: 1~2회 관찰만으로 "이 사람의 부엌은 이렇다"고 단정하지 않기 위함이다. 동시에 MVP에서는 베이즈 보정이나 사용자 확인 플로우를 넣지 않고, UI에서 설명 가능한 단순 규칙을 우선한다.
+
+**결과**:
+- `lib/fingerprint.ts`의 `recomputeFingerprint`가 이 기준을 적용한다.
+- 현재 구현 trait 후보는 `burnt_prone`, `salty_prone`, `bland_prone`, `watery_prone`이다.
+- 향후 더 정교한 confidence 공식은 본 ADR을 SUPERSEDED 처리하고 교체한다.
+
+---
+
+## D-018. Cook 타이머 권한 UX — 알림 요청 + Wake Lock fallback
+
+**맥락**: Cook Mode 타이머는 조리 중 손이 바쁜 상황을 전제로 한다. 브라우저 Notification 권한은 거부될 수 있고, Wake Lock API도 브라우저별 지원 차이가 있다.
+
+**결정**:
+1. 타이머 시작 시 Notification 권한을 요청한다.
+2. 권한이 허용되면 타이머 완료 시 브라우저 알림을 보낸다.
+3. Cook 화면 진입 시 Screen Wake Lock을 요청한다.
+4. Wake Lock 미지원 또는 거부 시 조리를 막지 않고 인페이지 안내를 표시한다.
+
+**이유**: 권한 게이트로 Cook 자체를 막으면 UX가 무겁다. 반대로 조용히 실패하면 사용자가 타이머를 놓친다. 요청 + 명시 안내 조합이 가장 정직하고, MVP 범위에서 외부 NoSleep류 의존성을 추가하지 않는다.
+
+**결과**:
+- `components/CookMode.tsx`가 Notification과 Wake Lock을 처리한다.
+- Wake Lock 미지원 브라우저에서는 화면 잠금 시간을 늘리라는 안내를 표시한다.
