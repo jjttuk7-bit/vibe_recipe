@@ -146,7 +146,7 @@ export default function HomePage(): React.ReactElement {
         <aside className="runtime-inspector">
           <div className="inspector-head">
             <span className="eyebrow">RUNTIME CONTEXT</span>
-            <h2>부엌 지문 대기실</h2>
+            <h2>부엌 지문 inspector</h2>
           </div>
           <div className="stack">
             <div className="metric-row">

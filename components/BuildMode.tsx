@@ -117,11 +117,14 @@ export default function BuildMode({
             <span>prompt.stdin</span>
             <span>{messages.length}/8 turns</span>
           </div>
-          <textarea
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            placeholder="냉장고 상태나 먹고 싶은 느낌을 입력"
-          />
+          <div className="prompt-editor">
+            <span aria-hidden="true">&gt;</span>
+            <textarea
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              placeholder="냉장고 상태나 먹고 싶은 느낌을 입력"
+            />
+          </div>
           <div className="row command-row">
             <button type="button" onClick={submit} disabled={!canSubmit || busy}>
               {busy ? "compiling..." : "compile recipe"}
@@ -191,18 +194,18 @@ export default function BuildMode({
           <span>RecipeState.object</span>
           <span>{previewItems.length} fields</span>
         </div>
-          {previewItems.length === 0 ? (
+        {previewItems.length === 0 ? (
           <p className="muted">아직 확정된 필드가 없습니다.</p>
-          ) : (
-            <ul className="recipe-list">
-              {previewItems.map(([key, value]) => (
-                <li key={key}>
-                  <strong>{key}</strong>
-                  <pre>{JSON.stringify(value, null, 2)}</pre>
-                </li>
-              ))}
-            </ul>
-          )}
+        ) : (
+          <ul className="recipe-list">
+            {previewItems.map(([key, value]) => (
+              <li key={key}>
+                <strong>{key}</strong>
+                <pre>{JSON.stringify(value, null, 2)}</pre>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </section>
   );

@@ -89,20 +89,20 @@ textarea {
 }
 
 .ide-shell {
-  width: min(1380px, calc(100vw - 28px));
+  width: min(1420px, calc(100vw - 28px));
   margin: 0 auto;
-  padding: 22px 0 44px;
+  padding: 12px 0 36px;
 }
 
 .command-header {
   display: grid;
-  grid-template-columns: minmax(260px, 0.95fr) minmax(360px, 1.35fr) minmax(220px, 0.7fr);
-  gap: 14px;
+  grid-template-columns: minmax(400px, 1.08fr) minmax(420px, 1.18fr) minmax(260px, 0.74fr);
+  gap: 12px;
   align-items: stretch;
   border: 2px solid var(--line-strong);
   background: linear-gradient(135deg, #fff3df, #f3dfc0);
   box-shadow: var(--shadow);
-  padding: 14px;
+  padding: 12px;
   position: relative;
 }
 
@@ -124,17 +124,18 @@ textarea {
 .brand-block h1 {
   margin: 0;
   font-family: var(--serif);
-  font-size: clamp(34px, 5vw, 72px);
+  font-size: clamp(42px, 4.2vw, 64px);
   font-weight: 700;
   letter-spacing: 0;
-  line-height: 0.92;
+  line-height: 0.98;
+  white-space: nowrap;
 }
 
 .brand-block p {
-  margin: 8px 0 0;
+  margin: 6px 0 0;
   color: var(--charcoal);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .eyebrow,
@@ -160,7 +161,7 @@ textarea {
 
 .command-grid {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .command-field input {
@@ -171,8 +172,8 @@ textarea {
 
 .status-cluster {
   display: grid;
-  align-content: space-between;
-  gap: 8px;
+  align-content: center;
+  gap: 7px;
 }
 
 .status-pill,
@@ -306,15 +307,30 @@ textarea {
 .prompt-surface textarea {
   min-height: 170px;
   border: 0;
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
   border-radius: 0;
+  padding: 12px 12px 12px 0;
   background:
     linear-gradient(transparent 31px, rgba(23, 19, 13, 0.08) 32px),
     #fffaf1;
   background-size: 100% 32px;
   font-size: 18px;
   line-height: 32px;
+}
+
+.prompt-editor {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: #fffaf1;
+}
+
+.prompt-editor > span {
+  padding-top: 15px;
+  text-align: center;
+  color: var(--heat);
+  font-family: var(--mono);
+  font-weight: 800;
 }
 
 .terminal-bar {
@@ -686,6 +702,11 @@ textarea {
   .compile-grid,
   .runtime-grid {
     grid-template-columns: 1fr;
+  }
+
+  .brand-block h1 {
+    white-space: normal;
+    font-size: clamp(38px, 15vw, 56px);
   }
 
   .pipeline-rail,
