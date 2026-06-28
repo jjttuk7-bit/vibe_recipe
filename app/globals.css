@@ -1,30 +1,32 @@
 :root {
-  color-scheme: light;
-  /* === D-026 디자인 시스템 SSOT === */
-  /* 색 — 스크린샷 0002 팔레트 적용 */
-  --ink: #1a1a1a;
-  --charcoal: #2a2520;
-  --muted: #73685b;
-  --line: #d7c7af;
-  --line-strong: #1f1a13;
-  --paper: #f4ead7;
-  --paper-soft: #fcf3e4;
-  --counter: #ead9bd;
-  --panel: #fcf3e4;
-  --panel-deep: #f1dfc4;
-  --code: #232019;
-  --code-soft: #30291f;
-  --run: #0e806a;
-  --run-soft: rgba(14, 128, 106, 0.14);
-  --heat: #d36b2c;
-  --heat-soft: rgba(211, 107, 44, 0.16);
-  --fail: #b33523;
-  --fail-soft: rgba(179, 53, 35, 0.12);
-  --gold: #b9872c;
-  --accent-green: #2a6d57;
-  --user-chip-bg: var(--ink);
+  color-scheme: dark;
+  /* === 다크 IDE 테마 (2026-06-28) === */
+  /* 사용자 레퍼런스: 터미널/IDE 룩 — 다크 배경 + 터미널 그린(주) + 골드/오렌지(보조) */
+  --ink: #e6edf3;          /* 본문 텍스트 (밝게) */
+  --charcoal: #c9d1d9;
+  --muted: #8b949e;        /* 보조 텍스트 (그레이) */
+  --line: #29313c;         /* 미세 경계 */
+  --line-strong: #3d444d;
+  --paper: #0d1117;        /* 페이지 배경 (near-black) */
+  --paper-soft: #11161d;
+  --counter: #161b22;      /* 카운터/표면 */
+  --panel: #161b22;        /* 카드/패널 표면 */
+  --panel-deep: #0d1117;
+  --field: #161b22;        /* 입력/표면 (구 라이트 크림 대체) */
+  --field-soft: #1c232c;
+  --code: #010409;         /* 코드 패널 (가장 어둡게) */
+  --code-soft: #161b22;
+  --run: #3fb950;          /* 터미널 그린 — 주 accent (Live/진행/구조) */
+  --run-soft: rgba(63, 185, 80, 0.15);
+  --heat: #f0883e;         /* 쿠킹 오렌지 — 액션(전송 버튼) */
+  --heat-soft: rgba(240, 136, 62, 0.16);
+  --fail: #f85149;
+  --fail-soft: rgba(248, 81, 73, 0.14);
+  --gold: #d8a32a;         /* 골드 — 보조 warmth */
+  --accent-green: #3fb950;
+  --user-chip-bg: #238636; /* 그린 유저 칩 */
   --user-chip-fg: #ffffff;
-  --shadow: 0 24px 80px rgba(45, 31, 16, 0.16);
+  --shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
   /* 폰트 3종 — D-026 */
   --font-body: var(--font-pretendard), "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
   --font-display: var(--font-newsreader), "Newsreader", Georgia, "Times New Roman", serif;
@@ -55,8 +57,8 @@ select {
 button {
   border: 1px solid var(--line-strong);
   border-radius: 4px;
-  background: var(--ink);
-  color: white;
+  background: var(--field-soft);
+  color: var(--ink);
   cursor: pointer;
   min-height: 40px;
   padding: 0 14px;
@@ -84,7 +86,7 @@ select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 4px;
-  background: #fffaf1;
+  background: var(--field);
   color: var(--ink);
   padding: 10px 12px;
 }
@@ -304,7 +306,7 @@ textarea {
   min-height: 72px;
   padding: 10px;
   text-align: left;
-  background: #fff8ec;
+  background: var(--field);
   color: var(--ink);
   border-color: var(--line);
 }
@@ -370,7 +372,7 @@ textarea {
 .compiler-output,
 .state-inspector {
   border: 1px solid var(--line);
-  background: #fffaf1;
+  background: var(--field);
 }
 
 .prompt-surface textarea {
@@ -379,8 +381,8 @@ textarea {
   border-radius: 0;
   padding: 12px 12px 12px 0;
   background:
-    linear-gradient(transparent 31px, rgba(23, 19, 13, 0.08) 32px),
-    #fffaf1;
+    linear-gradient(transparent 31px, rgba(255, 255, 255, 0.05) 32px),
+    var(--field);
   background-size: 100% 32px;
   font-size: 18px;
   line-height: 32px;
@@ -391,7 +393,7 @@ textarea {
   grid-template-columns: 34px minmax(0, 1fr);
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
-  background: #fffaf1;
+  background: var(--field);
 }
 
 .prompt-editor > span {
@@ -531,7 +533,7 @@ textarea {
 .diff-list li {
   border: 1px solid var(--line);
   border-radius: 4px;
-  background: #fffaf1;
+  background: var(--field);
   padding: 10px;
 }
 
@@ -580,7 +582,7 @@ textarea {
 .fp-trait-row {
   border: 1px solid var(--line);
   border-radius: 4px;
-  background: #fffaf1;
+  background: var(--field);
   padding: 10px 12px;
   display: grid;
   gap: 4px;
@@ -640,7 +642,7 @@ textarea {
 
 .hotfix-grid button,
 .outcome-grid button {
-  background: #fffdf8;
+  background: var(--field-soft);
   color: var(--ink);
   border-color: var(--line);
 }
@@ -681,7 +683,7 @@ textarea {
 .patch-deck,
 .execution-log {
   border: 1px solid var(--line);
-  background: #fffaf1;
+  background: var(--field);
 }
 
 .runtime-side {
@@ -749,7 +751,7 @@ textarea {
 .trace-panel,
 .commit-panel {
   border: 1px solid var(--line);
-  background: #fffaf1;
+  background: var(--field);
 }
 
 .commit-panel {
@@ -766,7 +768,7 @@ textarea {
   gap: 4px;
   min-height: 96px;
   align-content: center;
-  background: #fffaf1;
+  background: var(--field);
   color: var(--ink);
 }
 
@@ -957,7 +959,7 @@ textarea {
 
 .recipe-canvas {
   border: 1px solid var(--line);
-  background: #fffaf1;
+  background: var(--field);
   border-radius: 10px;
   padding: 22px 24px 24px;
   display: grid;
@@ -1095,8 +1097,8 @@ textarea {
   width: 24px;
   height: 24px;
   border-radius: 999px;
-  background: var(--ink);
-  color: #ffffff;
+  background: var(--run);
+  color: #0d1117;
   font-family: var(--mono);
   font-size: 12px;
   font-weight: 600;
@@ -1176,7 +1178,7 @@ textarea {
 
 .stage-pill.stage-active {
   color: var(--ink);
-  background: #fffaf1;
+  background: var(--field);
   border-color: var(--gold);
   font-weight: 600;
 }
@@ -1330,7 +1332,7 @@ textarea {
   display: grid;
   gap: 10px;
   border: 1px solid var(--line);
-  background: #fffaf1;
+  background: var(--field);
   border-radius: 10px;
   padding: 14px 16px 12px;
 }
@@ -1574,7 +1576,7 @@ textarea {
 
 .artifact-card {
   border: 1px solid var(--line-strong);
-  background: #fffaf1;
+  background: var(--field);
   border-radius: 6px;
   padding: 12px 14px;
   display: grid;
@@ -1777,7 +1779,7 @@ textarea {
   margin: 0;
   list-style: none;
   border: 1px solid var(--line);
-  background: #fffaf1;
+  background: var(--field);
   border-radius: 6px;
   padding: 12px;
 }
