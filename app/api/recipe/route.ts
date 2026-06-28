@@ -22,12 +22,14 @@ import { buildSystemPrompt } from "@/lib/prompt";
 
 export const runtime = "nodejs";
 
-// 데모: 항상 cold_start. (로그인/Supabase 연결 시 fetchBuildContext 로 복원.)
+// 데모: 학습 trait 없을 때의 cold_start. (로그인/Supabase 연결 시 fetchBuildContext 로 복원.)
 const DEMO_BUILD_CONTEXT: BuildContext = {
   runtime_log: null,
   fingerprint: null,
   cold_start: true,
 };
+// 합성 fingerprint 용 데모 user_id (UuidSchema 형식 충족용 상수).
+const DEMO_USER_ID = "00000000-0000-4000-8000-000000000000";
 
 // 클라이언트 요청 계약. messages 는 max(8) — ENGINE.md §3 "최근 8턴 대화".
 // build_context 는 클라가 보내지 않는다 (서버가 DB 에서 조회). R5/R9 가드:
@@ -44,6 +46,8 @@ const RequestBodySchema = z.object({
   recipe_id: z.string().uuid().nullable(),
   current_state: RecipeStateSchema.nullable(),
   stage: StageSchema,
+  // 데모 로컬 학습 — 클라(localStorage)가 보내는 확정 trait 문구.
+  client_traits: z.array(z.string().min(1).max(60)).max(10).optional(),
 });
 type RequestBody = z.infer<typeof RequestBodySchema>;
 
@@ -80,8 +84,26 @@ export async function POST(request: Request): Promise<Response> {
   }
   const body = parsed.data;
 
-  // 데모 모드 — 인증/BuildContext 조회 없이 항상 cold_start.
-  const buildContext = DEMO_BUILD_CONTEXT;
+  // 데모 로컬 학습 — 클라가 보낸 trait 가 있으면 학습 모드 BuildContext 를 합성.
+  // (로그인+DB 전환 시 fetchBuildContext 가 Supabase 에서 복원할 자리.)
+  const clientTraits = body.client_traits ?? [];
+  const buildContext: BuildContext =
+    clientTraits.length > 0
+      ? {
+          runtime_log: null,
+          cold_start: false,
+          fingerprint: {
+            user_id: DEMO_USER_ID,
+            total_runs_all_recipes: 0,
+            traits: clientTraits.map((label, i) => ({
+              key: `local_${i}`,
+              label,
+              confidence: 0.9,
+              evidence_run_ids: [],
+            })),
+          },
+        }
+      : DEMO_BUILD_CONTEXT;
 
   // [5] D-029 — 2단계 스트리밍. 평문 메시지는 토큰 단위 delta 로 흘리고,
   // 구조 JSON(new_state 포함)은 완결 수신 후 1건으로 검증(D-004 1회 재시도) →

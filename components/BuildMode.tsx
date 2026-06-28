@@ -15,6 +15,14 @@ import type {
   Taste,
   Texture,
 } from "@/lib/schema";
+import {
+  loadFingerprint,
+  recordFeedback,
+  traitLabels,
+  FEEDBACK_LABELS,
+  type FeedbackKind,
+  type LocalFingerprint,
+} from "@/lib/localFingerprint";
 
 // BuildMode — 2-pane (D-027 + D-021/D-022/D-023/D-024/D-025/D-026 누적).
 //
@@ -140,6 +148,27 @@ export default function BuildMode({
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const [prevSnapshot, setPrevSnapshot] = useState<Snapshot | null>(null);
 
+  // 로컬 학습 — 부엌 지문 (localStorage). SSR 안전: 마운트 후 로드.
+  const [fingerprint, setFingerprint] = useState<LocalFingerprint>(() => ({
+    counts: {},
+    totalMeals: 0,
+    updatedAt: "",
+  }));
+  const [savedKind, setSavedKind] = useState<FeedbackKind | null>(null);
+  useEffect(() => {
+    setFingerprint(loadFingerprint());
+  }, []);
+  const learnedTraits = useMemo(
+    () => traitLabels(fingerprint),
+    [fingerprint],
+  );
+
+  function onFeedback(kind: FeedbackKind): void {
+    setFingerprint(recordFeedback(kind));
+    setSavedKind(kind);
+    window.setTimeout(() => setSavedKind(null), 2200);
+  }
+
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = scrollRef.current;
@@ -190,6 +219,8 @@ export default function BuildMode({
           recipe_id: null,
           current_state: recipeState,
           stage,
+          // 로컬 학습 — 다음 빌드에 부엌 지문 주입(선제 보정).
+          client_traits: learnedTraits,
         }),
       });
 
@@ -293,6 +324,7 @@ export default function BuildMode({
         busy={busy}
         canSubmit={canSubmit(input)}
         error={error}
+        learnedTraits={learnedTraits}
       />
     );
   }
@@ -313,6 +345,17 @@ export default function BuildMode({
           );
         })}
       </ol>
+
+      {learnedTraits.length > 0 ? (
+        <div className="learned-bar" aria-label="학습된 부엌 지문">
+          <span className="learned-tag">🍳 내 부엌이 기억해요</span>
+          {learnedTraits.map((t) => (
+            <span key={t} className="learned-chip">
+              {t}
+            </span>
+          ))}
+        </div>
+      ) : null}
 
       <div className="build-canvas">
         {/* ── 좌측: 대화 + 입력 ─────────────────────── */}
@@ -397,6 +440,29 @@ export default function BuildMode({
             {error ? <div className="alert chat-alert">{error}</div> : null}
           </div>
 
+          {stage === "done" ? (
+            <div className="cook-feedback" aria-label="요리 피드백">
+              <span className="cook-feedback-q">
+                {savedKind
+                  ? "기억해둘게요 — 다음 빌드 때 미리 반영할게요 👍"
+                  : "만들어봤어요? 어땠어요? (피드백은 다음 레시피에 반영돼요)"}
+              </span>
+              <div className="cook-feedback-chips">
+                {(Object.keys(FEEDBACK_LABELS) as FeedbackKind[]).map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    className="feedback-chip"
+                    onClick={() => onFeedback(k)}
+                    disabled={busy}
+                  >
+                    {FEEDBACK_LABELS[k]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           <div className="build-input">
             <textarea
               value={input}
@@ -475,6 +541,7 @@ function ColdStartHero({
   busy,
   canSubmit,
   error,
+  learnedTraits,
 }: {
   input: string;
   onInputChange: (next: string) => void;
@@ -483,6 +550,7 @@ function ColdStartHero({
   busy: boolean;
   canSubmit: boolean;
   error: string | null;
+  learnedTraits: string[];
 }): React.ReactElement {
   const [timeLabel, setTimeLabel] = useState<string>(() => formatTimeLabel(new Date()));
 
@@ -499,6 +567,17 @@ function ColdStartHero({
         <span className="cold-hero-eyebrow">{timeLabel}</span>
         <h1 className="cold-hero-title">{HERO_TITLE}</h1>
         <p className="cold-hero-subtitle">{HERO_SUBTITLE}</p>
+
+        {learnedTraits.length > 0 ? (
+          <div className="learned-bar hero-learned" aria-label="학습된 부엌 지문">
+            <span className="learned-tag">🍳 내 부엌 기억</span>
+            {learnedTraits.map((t) => (
+              <span key={t} className="learned-chip">
+                {t}
+              </span>
+            ))}
+          </div>
+        ) : null}
 
         <div className="build-input cold-hero-input">
           <textarea
