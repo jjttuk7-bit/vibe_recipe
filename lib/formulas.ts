@@ -9,6 +9,22 @@
 // *실제로 확인된* 부분만 담는다. 미확인 공식의 정확 비율은 비워 두고(지어내지 않음),
 // 셰프는 재료-맛 역할 맵 + 공식 논리로 합리적으로 보정한다.
 
+/**
+ * 공식 실전 비율 — **출처·검증 플래그 필수**.
+ *
+ * 검증 구조(사용자 요구): 비율은 해자다. LLM 기억/추측에 맡기지 않는다.
+ *   - source: 어디서 왔나 (책 공식 번호 등).
+ *   - verified: *저자(유케이) 확인 완료* 만 true. 자동 추출만 된 건 false.
+ * 셰프는 verified=true 만 "공식 비율"로 단정한다. false 는 "추정"으로만.
+ */
+export type FormulaRatio = {
+  name: string;
+  ratio: string;
+  tip?: string;
+  source: string;
+  verified: boolean;
+};
+
 export type KnowledgePack = {
   id: string;
   title: string;
@@ -22,8 +38,8 @@ export type KnowledgePack = {
   formulas: { ko: string; en: string }[];
   /** 계량 기준. */
   measuring: string[];
-  /** 실전 비율이 확인된 공식 예. (미확인은 넣지 않는다.) */
-  knownRatios: { name: string; ratio: string; tip?: string }[];
+  /** 공식 실전 비율 (출처·검증 동반). 지어내지 않는다. */
+  ratios: FormulaRatio[];
 };
 
 export const KFOOD_PACK: KnowledgePack = {
@@ -64,11 +80,13 @@ export const KFOOD_PACK: KnowledgePack = {
     { ko: "마무리", en: "Finishing Touch" },
   ],
   measuring: ["1큰술(T) = 15ml", "1작은술(t) = 5ml", "종이컵 = 180ml"],
-  knownRatios: [
+  ratios: [
     {
       name: "김치찌개",
       ratio: "김치 1컵 : 김치국물 ½컵 : 다진마늘 1t : 설탕 1t : 물 2컵",
       tip: "너무 시면 설탕 조금 더 + 오래 끓이기.",
+      source: "K-Food Formula Kitchen 공식 07 (이미지 자동 추출)",
+      verified: false, // 저자(유케이) 확인 전 — 검증 파이프라인 통과 시 true.
     },
   ],
 };
@@ -77,15 +95,18 @@ export const KFOOD_PACK: KnowledgePack = {
 export const ACTIVE_PACK: KnowledgePack = KFOOD_PACK;
 
 // 시스템 프롬프트에 주입할 한식 지식 섹션 문자열.
+// 검증 구조: 비율을 verified / 미검증으로 갈라 셰프에게 다르게 쓰게 한다.
 export function renderKnowledgePack(pack: KnowledgePack): string {
   const roles = pack.ingredientRoles
     .map((r) => `${r.ingredient}=${r.role}`)
     .join(" / ");
   const cats = pack.formulas.map((f) => f.ko).join("·");
-  const ratios = pack.knownRatios
-    .map((r) => `- ${r.name}: ${r.ratio}${r.tip ? ` (${r.tip})` : ""}`)
-    .join("\n");
-  return [
+  const fmt = (r: FormulaRatio): string =>
+    `- ${r.name}: ${r.ratio}${r.tip ? ` (${r.tip})` : ""}`;
+  const verified = pack.ratios.filter((r) => r.verified);
+  const unverified = pack.ratios.filter((r) => !r.verified);
+
+  const lines = [
     `## 지식 팩 — ${pack.title}`,
     pack.doctrine,
     "",
@@ -96,9 +117,22 @@ export function renderKnowledgePack(pack: KnowledgePack): string {
     `### 조리 동작\n${pack.moves.join(" · ")}`,
     `### 12 공식 카테고리\n${cats}`,
     `### 계량\n${pack.measuring.join(" / ")}`,
-    "### 확인된 실전 비율 (있는 것만)",
-    ratios,
+  ];
+  if (verified.length > 0) {
+    lines.push(
+      "### 검증된 실전 비율 (저자 확인 — '공식'으로 단정 가능)",
+      verified.map(fmt).join("\n"),
+    );
+  }
+  if (unverified.length > 0) {
+    lines.push(
+      "### 미검증 비율 (저자 확인 전 — '내 추정'으로만, '공식'이라 단정 금지)",
+      unverified.map(fmt).join("\n"),
+    );
+  }
+  lines.push(
     "",
-    "규율: 위 재료-맛 역할에 **근거**해 조절을 설명한다(예: \"더 매콤하게 = 고추장 한 술 추가\"). 확인 안 된 공식의 정확 비율을 *지어내지 말고*, 공식 논리로 합리적으로 잡는다.",
-  ].join("\n");
+    "규율(검증 구조): 조절은 위 재료-맛 역할에 **근거**해 설명한다(예: \"더 매콤 = 고추장 한 술\"). **검증된 비율만 '공식 비율'로 단정**하고, 미검증·미수록은 공식 논리로 추론하되 \"정확 비율은 확정 전\"임을 밝힌다. 비율을 지어내 '공식'이라 말하지 마라.",
+  );
+  return lines.join("\n");
 }
