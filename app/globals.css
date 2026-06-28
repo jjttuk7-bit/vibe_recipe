@@ -1,32 +1,33 @@
 :root {
-  color-scheme: dark;
-  /* === 다크 IDE 테마 (2026-06-28) === */
-  /* 사용자 레퍼런스: 터미널/IDE 룩 — 다크 배경 + 터미널 그린(주) + 골드/오렌지(보조) */
-  --ink: #e6edf3;          /* 본문 텍스트 (밝게) */
-  --charcoal: #c9d1d9;
-  --muted: #8b949e;        /* 보조 텍스트 (그레이) */
-  --line: #29313c;         /* 미세 경계 */
-  --line-strong: #3d444d;
-  --paper: #0d1117;        /* 페이지 배경 (near-black) */
-  --paper-soft: #11161d;
-  --counter: #161b22;      /* 카운터/표면 */
-  --panel: #161b22;        /* 카드/패널 표면 */
-  --panel-deep: #0d1117;
-  --field: #161b22;        /* 입력/표면 (구 라이트 크림 대체) */
-  --field-soft: #1c232c;
-  --code: #010409;         /* 코드 패널 (가장 어둡게) */
-  --code-soft: #161b22;
-  --run: #3fb950;          /* 터미널 그린 — 주 accent (Live/진행/구조) */
-  --run-soft: rgba(63, 185, 80, 0.15);
-  --heat: #f0883e;         /* 쿠킹 오렌지 — 액션(전송 버튼) */
-  --heat-soft: rgba(240, 136, 62, 0.16);
-  --fail: #f85149;
-  --fail-soft: rgba(248, 81, 73, 0.14);
-  --gold: #d8a32a;         /* 골드 — 보조 warmth */
-  --accent-green: #3fb950;
-  --user-chip-bg: #238636; /* 그린 유저 칩 */
+  color-scheme: light;
+  /* === 라이트 IDE 테마 (2026-06-28) === */
+  /* 사용자 레퍼런스(Stitch): 밝고 깨끗한 오프 화이트 + 고대비 IDE syntax 컬러. */
+  /* "음식이라서" — 따뜻한 오프 화이트, 그린은 라이트 대비용으로 한 톤 진하게. */
+  --ink: #1f2328;          /* 본문 텍스트 (다크) */
+  --charcoal: #2f363d;
+  --muted: #6a7178;        /* 보조 텍스트 (그레이) */
+  --line: #e6e3da;         /* 미세 경계 (warm light grey) */
+  --line-strong: #cfd0c7;
+  --paper: #faf8f3;        /* 오프 화이트 배경 (warm, clean) */
+  --paper-soft: #fdfdfb;
+  --counter: #ffffff;      /* 카운터/표면 (흰 카드) */
+  --panel: #ffffff;        /* 카드/패널 표면 */
+  --panel-deep: #f3f4ef;
+  --field: #ffffff;        /* 입력/표면 (흰) */
+  --field-soft: #f5f6f1;
+  --code: #f4f6f3;         /* 코드 패널 (라이트 그레이) */
+  --code-soft: #eceee8;
+  --run: #1f883d;          /* IDE 그린 — 주 accent (라이트 대비) */
+  --run-soft: rgba(31, 136, 61, 0.12);
+  --heat: #cf5c2e;         /* 쿠킹 오렌지 — 액션(전송 버튼) */
+  --heat-soft: rgba(207, 92, 46, 0.14);
+  --fail: #cf222e;
+  --fail-soft: rgba(207, 34, 46, 0.10);
+  --gold: #9a6700;         /* 골드 — 보조 */
+  --accent-green: #1f883d;
+  --user-chip-bg: #1f2328; /* 다크 유저 칩 (라이트 배경 대비) */
   --user-chip-fg: #ffffff;
-  --shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+  --shadow: 0 24px 80px rgba(40, 35, 25, 0.10);
   /* 폰트 3종 — D-026 */
   --font-body: var(--font-pretendard), "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
   --font-display: var(--font-newsreader), "Newsreader", Georgia, "Times New Roman", serif;
@@ -381,7 +382,7 @@ textarea {
   border-radius: 0;
   padding: 12px 12px 12px 0;
   background:
-    linear-gradient(transparent 31px, rgba(255, 255, 255, 0.05) 32px),
+    linear-gradient(transparent 31px, rgba(0, 0, 0, 0.05) 32px),
     var(--field);
   background-size: 100% 32px;
   font-size: 18px;
@@ -1098,7 +1099,7 @@ textarea {
   height: 24px;
   border-radius: 999px;
   background: var(--run);
-  color: #0d1117;
+  color: #ffffff;
   font-family: var(--mono);
   font-size: 12px;
   font-weight: 600;
