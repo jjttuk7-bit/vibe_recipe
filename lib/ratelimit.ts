@@ -75,10 +75,24 @@ export type RateLimitResult = RateLimitOk | RateLimitBlocked;
 // 라우트 핸들러에서 호출.
 //   const gate = await enforceRateLimit(request, "recipe");
 //   if (!gate.ok) return gate.response;
+// 데모 모드(2026-06-28): Upstash 미설정이면 rate limit 을 건너뛴다.
+// OPENAI_API_KEY 만으로 동작하게 하기 위함. 운영 전환 시 UPSTASH_* 를 채우면
+// 자동으로 다시 활성화된다. (공개 URL 비용 노출 주의 — README 경고 참고.)
+function upstashConfigured(): boolean {
+  return (
+    !!process.env.UPSTASH_REDIS_REST_URL &&
+    !!process.env.UPSTASH_REDIS_REST_TOKEN
+  );
+}
+
 export async function enforceRateLimit(
   request: Request,
   routeKey: string,
 ): Promise<RateLimitResult> {
+  if (!upstashConfigured()) {
+    // 무제한 통과 — 헤더용 더미 값.
+    return { ok: true, limit: 0, remaining: 0, reset: Date.now() };
+  }
   const id = identifyClient(request);
   const limiter = getLimiter(`viberecipe:${routeKey}`);
   const { success, limit, remaining, reset } = await limiter.limit(id);

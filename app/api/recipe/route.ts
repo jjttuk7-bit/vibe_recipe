@@ -1,31 +1,14 @@
-// /api/recipe — BUILD 엔진 호출 (ENGINE.md §1~§5).
+// /api/recipe — BUILD 엔진 호출 (데모 모드).
 //
-// P0 강제 (ROADMAP §8.5):
-// - rate limit + env 가드는 본 사이클에서도 유지.
-// - 헌법 §8.5: API 키 서버 격리. lib/env.ts(server-only) 만 통해 접근.
-//
-// P1 본문 구현:
-// - **§1.4 / D-008 SSOT**: 모든 스키마는 @/lib/schema 한 곳에서만 import.
-//   라우트 옆 z.object / z.enum 정의 0건 (RequestBodySchema 는 클라 입력 검증
-//   전용으로 데이터 모델 SSOT 가 아니므로 유지 — R5/R9 가드 통과).
-// - **D-001**: LLM 응답은 new_state 부분객체. diff 계산은 클라/서버 코드 책임
-//   (lib/diff.ts splitDiff). 본 라우트는 splitDiff 를 호출하지 않는다 —
-//   task description: "splitDiff 는 클라가 계산하므로 여기선 new_state 만".
-// - **D-004 / R12**: EngineResponseSchema 검증 실패 시 에러 메시지를 user
-//   메시지로 덧붙여 정확히 1회 재호출. extractJson 실패도 검증 실패로 카운트.
-//   2회 연속 실패 → 502.
-// - **§4 / D-008 cold_start**: buildContext 를 lib/buildContext.fetchBuildContext
-//   로 조회 후 buildSystemPrompt 에 주입. cold_start=true 면 systemPrompt 가
-//   "맹탕 모드"임을 명시 (lib/prompt.ts renderModeHeader 강제).
-// - **GA-3**: BuildContext 조회 실패는 1회 재시도 후 502 (사용자 결정문 GA-3).
-// - **R13**: messages.slice(-8) — RequestBodySchema 가 max(8) 이지만 한 번 더.
-// - **인증**: Authorization: Bearer <jwt> 헤더에서 anon 토큰 추출.
-//   supabase auth.getUser 로 user_id 검증 후 service-role 호출(R4 가드).
-//   토큰 부재/검증 실패 → 401.
+// 2026-06-28 데모 정리:
+// - 엔진을 OpenAI 로 교체 (OPENAI_API_KEY). 모델 기본 gpt-4o-mini.
+// - **인증/Supabase 제거**: 로그인 없이 누구나 BUILD 가능. user_id·BuildContext
+//   조회 없이 항상 cold_start 로 시작 (회귀학습/지문 주입은 데모에서 비활성).
+// - rate limit 은 Upstash 설정 시에만 (lib/ratelimit). 미설정이면 통과.
+// - D-029 2단계 스트리밍 + D-004 1회 재시도 + D-001(검증 후 diff) 보존.
 import { z } from "zod";
-import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import {
-  BuildContextSchema,
   EngineResponseSchema,
   EngineStructuredSchema,
   RecipeStateSchema,
@@ -34,12 +17,17 @@ import {
   type EngineResponse,
 } from "@/lib/schema";
 import { enforceRateLimit, withRateLimitHeaders } from "@/lib/ratelimit";
-import { anthropicApiKey, vibeRecipeModel } from "@/lib/env";
+import { openaiApiKey, vibeRecipeModel } from "@/lib/env";
 import { buildSystemPrompt } from "@/lib/prompt";
-import { fetchBuildContext } from "@/lib/buildContext";
-import { authenticateRequest } from "@/lib/auth";
 
 export const runtime = "nodejs";
+
+// 데모: 항상 cold_start. (로그인/Supabase 연결 시 fetchBuildContext 로 복원.)
+const DEMO_BUILD_CONTEXT: BuildContext = {
+  runtime_log: null,
+  fingerprint: null,
+  cold_start: true,
+};
 
 // 클라이언트 요청 계약. messages 는 max(8) — ENGINE.md §3 "최근 8턴 대화".
 // build_context 는 클라가 보내지 않는다 (서버가 DB 에서 조회). R5/R9 가드:
@@ -92,37 +80,8 @@ export async function POST(request: Request): Promise<Response> {
   }
   const body = parsed.data;
 
-  // [3a] 인증 — Authorization: Bearer <jwt>. R4(cross-tenant) 가드 진입점.
-  // user_id 가 확정돼야 [4] 의 service-role 호출 가능.
-  const authResult = await authenticateRequest(request);
-  if (!authResult.ok) {
-    return withRateLimitHeaders(authResult.response, gate);
-  }
-  const userId = authResult.userId;
-
-  // [4] §4 / D-008 — BuildContext 조회. GA-3 정책: 1회 재시도 후 502.
-  let buildContext: BuildContext;
-  try {
-    buildContext = await fetchBuildContext({
-      recipeId: body.recipe_id,
-      userId,
-    });
-  } catch {
-    try {
-      buildContext = await fetchBuildContext({
-        recipeId: body.recipe_id,
-        userId,
-      });
-    } catch {
-      return withRateLimitHeaders(
-        jsonResponse(502, {
-          error: "build_context_fetch_failed",
-          message: "지난 기록을 불러오지 못했어요. 다시 시도해주세요.",
-        }),
-        gate,
-      );
-    }
-  }
+  // 데모 모드 — 인증/BuildContext 조회 없이 항상 cold_start.
+  const buildContext = DEMO_BUILD_CONTEXT;
 
   // [5] D-029 — 2단계 스트리밍. 평문 메시지는 토큰 단위 delta 로 흘리고,
   // 구조 JSON(new_state 포함)은 완결 수신 후 1건으로 검증(D-004 1회 재시도) →
@@ -262,7 +221,7 @@ async function runStreamingAttempt(
   let proseEmitted = 0;
   let delimIndex = -1;
 
-  for await (const chunk of streamAnthropicText(system, messages)) {
+  for await (const chunk of streamOpenAIText(system, messages)) {
     full += chunk;
     if (delimIndex === -1) delimIndex = full.indexOf(STATE_DELIMITER);
     // 구분자를 찾았으면 그 앞까지가 평문. 아직이면 구분자 길이만큼 보류.
@@ -343,34 +302,33 @@ function retryUserMessage(error: string): string {
   ].join("\n");
 }
 
-// Anthropic 스트리밍 — text_delta 만 yield. tool_use 등은 본 라우트 미사용.
-async function* streamAnthropicText(
+// OpenAI 스트리밍 — chat.completions delta.content 만 yield.
+// system 은 첫 메시지(role:system)로, 대화는 user/assistant 그대로 전달.
+async function* streamOpenAIText(
   system: string,
   messages: RequestBody["messages"],
 ): AsyncGenerator<string> {
-  const client = getAnthropic();
-  const stream = await client.messages.create({
+  const client = getOpenAI();
+  const stream = await client.chat.completions.create({
     model: vibeRecipeModel(),
     max_tokens: MAX_TOKENS,
-    system,
-    messages: messages.map((m) => ({ role: m.role, content: m.content })),
     stream: true,
+    messages: [
+      { role: "system", content: system },
+      ...messages.map((m) => ({ role: m.role, content: m.content })),
+    ],
   });
-  for await (const event of stream) {
-    if (
-      event.type === "content_block_delta" &&
-      event.delta.type === "text_delta"
-    ) {
-      yield event.delta.text;
-    }
+  for await (const chunk of stream) {
+    const delta = chunk.choices[0]?.delta?.content;
+    if (delta) yield delta;
   }
 }
 
-let cachedAnthropic: Anthropic | null = null;
-function getAnthropic(): Anthropic {
-  if (cachedAnthropic) return cachedAnthropic;
-  cachedAnthropic = new Anthropic({ apiKey: anthropicApiKey() });
-  return cachedAnthropic;
+let cachedOpenAI: OpenAI | null = null;
+function getOpenAI(): OpenAI {
+  if (cachedOpenAI) return cachedOpenAI;
+  cachedOpenAI = new OpenAI({ apiKey: openaiApiKey() });
+  return cachedOpenAI;
 }
 
 // 첫 '{' ~ 마지막 '}' 슬라이스. 코드블록 펜스(``` ```)가 섞여 와도 통과 가능.
@@ -393,9 +351,3 @@ function jsonResponse(status: number, payload: unknown): Response {
     headers: { "Content-Type": "application/json; charset=utf-8" },
   });
 }
-
-// SSOT 결합 보존 — BuildContextSchema / StageSchema 가 본 라우트의 단일 출처임을
-// 컴파일러가 강제. (RequestBodySchema 에서 StageSchema 가 실 사용되고,
-// BuildContextSchema 는 fetchBuildContext 내부 검증으로 간접 사용되지만,
-// 본 파일이 import 한 사실을 명시적으로 보존한다.)
-void BuildContextSchema;

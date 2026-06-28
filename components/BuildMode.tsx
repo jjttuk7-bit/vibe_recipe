@@ -48,8 +48,6 @@ type RecipeSuccessPayload = {
 type RecipeErrorPayload = { message?: string; error?: string };
 
 export type BuildModeProps = {
-  authToken: string;
-  recipeId: string | null;
   recipeState: RecipeState | null;
   onRecipeStateChange: (state: RecipeState | null) => void;
   onStageChange: (stage: Stage) => void;
@@ -125,8 +123,6 @@ type Snapshot = {
 };
 
 export default function BuildMode({
-  authToken,
-  recipeId,
   recipeState,
   onRecipeStateChange,
   onStageChange,
@@ -160,7 +156,7 @@ export default function BuildMode({
   const pendingUserCount = messages.length - 1 - lastAssistantIdx;
 
   function canSubmit(text: string): boolean {
-    if (busy || authToken.trim().length === 0) return false;
+    if (busy) return false;
     if (text.trim().length > 0) return true;
     return pendingUserCount > 0;
   }
@@ -188,11 +184,10 @@ export default function BuildMode({
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken.trim()}`,
         },
         body: JSON.stringify({
           messages: wireMessages,
-          recipe_id: recipeId,
+          recipe_id: null,
           current_state: recipeState,
           stage,
         }),
@@ -261,28 +256,6 @@ export default function BuildMode({
     setPrevSnapshot(null);
   }
 
-  function loadFixture(): void {
-    setPrevSnapshot(takeSnapshot());
-    const sample: RecipeState = {
-      name: "팬 김치볶음밥",
-      concept: "김치와 계란으로 만드는 빠른 한 끼",
-      ingredients: [
-        { name: "밥", amount: "1공기" },
-        { name: "김치", amount: "1/2컵" },
-        { name: "계란", amount: "1개" },
-      ],
-      tools: ["팬", "주걱"],
-      time_min: 12,
-      steps: [
-        { text: "팬을 중불로 달구고 김치를 볶아 수분을 날린다.", timer_sec: 120 },
-        { text: "밥을 넣고 김치와 고르게 섞는다.", timer_sec: 90 },
-        { text: "한쪽에 계란을 익힌 뒤 밥과 섞어 마무리한다.", timer_sec: 60 },
-      ],
-    };
-    onRecipeStateChange(sample);
-    onStageChange("done");
-  }
-
   const visibleMessages = useMemo(() => {
     if (historyExpanded) return messages;
     let assistantSeen = 0;
@@ -317,7 +290,6 @@ export default function BuildMode({
         onInputChange={setInput}
         onSubmit={(text) => void submit(text)}
         onQuickStart={(label) => void submit(label)}
-        onLoadFixture={loadFixture}
         busy={busy}
         canSubmit={canSubmit(input)}
         error={error}
@@ -455,16 +427,6 @@ export default function BuildMode({
                 >
                   ↶ 직전 취소
                 </button>
-                <button
-                  type="button"
-                  className="aux-chip"
-                  onClick={loadFixture}
-                  disabled={busy}
-                  title="dev 샘플 채우기"
-                  style={{ cursor: !busy ? "pointer" : "not-allowed" }}
-                >
-                  샘플
-                </button>
               </div>
               <div className="build-input-trailing">
                 {pendingUserCount > 0 && input.trim().length === 0 ? (
@@ -510,7 +472,6 @@ function ColdStartHero({
   onInputChange,
   onSubmit,
   onQuickStart,
-  onLoadFixture,
   busy,
   canSubmit,
   error,
@@ -519,7 +480,6 @@ function ColdStartHero({
   onInputChange: (next: string) => void;
   onSubmit: (text?: string) => void;
   onQuickStart: (label: string) => void;
-  onLoadFixture: () => void;
   busy: boolean;
   canSubmit: boolean;
   error: string | null;
@@ -559,16 +519,6 @@ function ColdStartHero({
               </button>
               <button type="button" className="aux-chip" disabled title="P2 이월 — 음성 입력">
                 ⏵ 음성
-              </button>
-              <button
-                type="button"
-                className="aux-chip"
-                onClick={onLoadFixture}
-                disabled={busy}
-                title="dev 샘플 채우기"
-                style={{ cursor: !busy ? "pointer" : "not-allowed" }}
-              >
-                샘플
               </button>
             </div>
             <div className="build-input-trailing">

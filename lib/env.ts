@@ -39,14 +39,15 @@ function optionalIntEnv(name: string, fallback: number): number {
   return n;
 }
 
-// --- Anthropic (엔진) ---
-export function anthropicApiKey(): string {
-  return requireEnv("ANTHROPIC_API_KEY");
+// --- OpenAI (엔진) ---
+// 데모 모드(2026-06-28): 엔진을 OpenAI 로 교체. OPENAI_API_KEY 사용.
+export function openaiApiKey(): string {
+  return requireEnv("OPENAI_API_KEY");
 }
 
-// ENGINE.md §1: 기본 Haiku, 환경변수로 교체.
+// 기본 gpt-4o-mini, 환경변수 VIBE_RECIPE_MODEL 로 교체 가능.
 export function vibeRecipeModel(): string {
-  return optionalEnv("VIBE_RECIPE_MODEL", "claude-haiku-4-5-20251001");
+  return optionalEnv("VIBE_RECIPE_MODEL", "gpt-4o-mini");
 }
 
 // --- Upstash (Rate Limit, P0 필수) ---
