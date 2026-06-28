@@ -299,7 +299,10 @@ export const EngineResponseSchema = z.object({
   message: z.string().min(1),
   stage: StageSchema,
   new_state: RecipeStateSchema.nullable(),
-  options: z.array(z.string().min(1).max(15)).min(0).max(3),
+  options: z.array(z.string().min(1).max(15)).min(0).max(5),
+  // 선택 방식: single=하나로 갈리는 선택(조리 방향/컨셉), multi=여러 개가 같이
+  // 들어가는 선택(재료/야채/양념/토핑). 누락 시 single. UI 가 칩 동작을 가른다.
+  options_mode: z.enum(["single", "multi"]).default("single"),
   change_log: z.array(z.string().min(1)),
   warnings: z.array(z.string().min(1)),
 });

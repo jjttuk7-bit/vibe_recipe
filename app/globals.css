@@ -1864,6 +1864,33 @@ textarea {
   cursor: not-allowed;
 }
 
+/* 복수 선택 — 토글된 칩 + 확정 버튼 */
+.option-chip.picked {
+  background: var(--run-soft);
+  border-color: var(--run);
+  color: var(--run);
+  font-weight: 600;
+}
+
+.option-confirm {
+  min-height: 32px;
+  padding: 4px 14px;
+  border: 1px solid var(--run);
+  border-radius: 999px;
+  background: var(--run);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.option-confirm:disabled {
+  background: transparent;
+  color: var(--muted);
+  border-color: var(--line);
+  cursor: not-allowed;
+}
+
 /* === BUILD 경고 (warnings) === */
 
 .warning-card {

@@ -144,6 +144,8 @@ export default function BuildMode({
   const [busy, setBusy] = useState(false);
   // D-029 — 스트리밍 중 셰프 버블에 흘러나오는 평문. null=비스트리밍.
   const [streamingText, setStreamingText] = useState<string | null>(null);
+  // 복수 선택(options_mode=multi) 시 토글된 항목들.
+  const [picked, setPicked] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const [prevSnapshot, setPrevSnapshot] = useState<Snapshot | null>(null);
@@ -194,11 +196,18 @@ export default function BuildMode({
     return { recipeState, lastDiff, lastResponse, lastContext, messages, stage };
   }
 
+  function togglePick(opt: string): void {
+    setPicked((p) =>
+      p.includes(opt) ? p.filter((x) => x !== opt) : [...p, opt],
+    );
+  }
+
   async function submit(text?: string): Promise<void> {
     const userText = (text ?? input).trim();
     if (!canSubmit(userText)) return;
     setBusy(true);
     setError(null);
+    setPicked([]);
     setPrevSnapshot(takeSnapshot());
 
     const baseMessages: Message[] =
@@ -400,19 +409,57 @@ export default function BuildMode({
                 <ChatBubble key={idx} role="chef" speaker="pair-chef">
                   <p className="bubble-text">{msg.content}</p>
                   {isLatest && lastResponse && lastResponse.options.length > 0 ? (
-                    <div className="option-chips" role="group" aria-label="옵션">
-                      {lastResponse.options.map((opt, i) => (
+                    lastResponse.options_mode === "multi" ? (
+                      <div
+                        className="option-chips multi"
+                        role="group"
+                        aria-label="옵션 (여러 개 선택 가능)"
+                      >
+                        {lastResponse.options.map((opt, i) => {
+                          const on = picked.includes(opt);
+                          return (
+                            <button
+                              key={`${i}-${opt}`}
+                              type="button"
+                              className={`option-chip${on ? " picked" : ""}`}
+                              onClick={() => togglePick(opt)}
+                              disabled={busy}
+                              aria-pressed={on}
+                            >
+                              {on ? "✓ " : ""}
+                              {opt}
+                            </button>
+                          );
+                        })}
                         <button
-                          key={`${i}-${opt}`}
                           type="button"
-                          className="option-chip"
-                          onClick={() => void submit(opt)}
-                          disabled={busy}
+                          className="option-confirm"
+                          onClick={() => {
+                            const sel = picked.join(", ");
+                            if (sel) void submit(sel);
+                          }}
+                          disabled={busy || picked.length === 0}
                         >
-                          {opt}
+                          {picked.length > 0
+                            ? `이걸로 → (${picked.length})`
+                            : "여러 개 골라도 돼"}
                         </button>
-                      ))}
-                    </div>
+                      </div>
+                    ) : (
+                      <div className="option-chips" role="group" aria-label="옵션">
+                        {lastResponse.options.map((opt, i) => (
+                          <button
+                            key={`${i}-${opt}`}
+                            type="button"
+                            className="option-chip"
+                            onClick={() => void submit(opt)}
+                            disabled={busy}
+                          >
+                            {opt}
+                          </button>
+                        ))}
+                      </div>
+                    )
                   ) : null}
                   {isLatest && lastResponse && lastResponse.warnings.length > 0 ? (
                     <ul className="warning-card warning-inline">
