@@ -295,22 +295,16 @@ function renderStageTasteClause(stage: Stage): string[] {
 }
 
 function renderOutputContract(): string {
-  // 경계 A SSOT — D-029(DR4 2단계 스트리밍).
-  //   1부: 평문 대화 메시지 = EngineResponse.message (토큰 스트리밍 대상).
-  //   2부: ===STATE_JSON=== 뒤 구조 JSON = EngineStructuredSchema
-  //        (message 제외 5개 키: stage, new_state, options, change_log, warnings).
+  // 경계 A SSOT — EngineResponseSchema 와 1:1 (단일 JSON, OpenAI JSON 모드).
+  //   6개 키: message, stage, new_state, options, change_log, warnings.
   // stage enum 5개 (concept, base, taste, steps, done).
   // new_state.steps 가 { text, timer_sec }[] 구조라는 점이 D-005 강제 지점.
   return [
-    "## 출력 명세 (엄격 — 2단계 형식, D-029)",
-    "응답은 **두 부분**으로 나눠 출력한다:",
-    "1. 먼저 사용자에게 보일 **대화 메시지를 평문(prose)으로** 1~3문장 쓴다. 말하듯이 — 마크다운/코드블록/JSON 금지. (이 평문이 곧 대화 버블에 실시간으로 흘러나간다.)",
-    "2. 그 다음 줄에 **정확히** `===STATE_JSON===` 한 줄을 단독으로 쓴다.",
-    "3. 이어서 아래 **5개 키를 가진 단일 JSON 객체**를 출력한다. 이 JSON 안에는 `message` 키를 넣지 않는다 — 대화 메시지는 위 1번 평문이 전부다.",
+    "## 출력 명세 (엄격 — 단일 JSON 객체만)",
+    "응답은 아래 **6개 키를 가진 단일 JSON 객체**로만 반환한다. JSON 외 텍스트(설명/마크다운/코드블록 펜스) 절대 금지.",
     "```",
-    "여기에 대화 메시지를 평문으로 씁니다. 1~3문장, 빈 메시지 금지.",
-    "===STATE_JSON===",
     "{",
+    "  \"message\": \"대화 메시지 (1~3문장, 빈 문자열 금지). 말하듯이, 자연스럽게.\",",
     "  \"stage\": \"concept | base | taste | steps | done\",",
     "  \"new_state\": { /* RecipeState 부분객체 — 이번 턴 확정된 필드만. 변경 없으면 null */ } 또는 null,",
     "  \"options\": [\"선택지 (각 15자 이내, 최대 3개)\"],",
@@ -318,9 +312,8 @@ function renderOutputContract(): string {
     "  \"warnings\": [\"조리 원리상 위험·한계 (없으면 빈 배열)\"]",
     "}",
     "```",
-    "### 형식 규율 (D-029)",
-    "- `===STATE_JSON===` **앞은 평문만, 뒤는 JSON 객체 하나만**. 구분자는 정확히 그 문자열이어야 한다 (앞뒤 공백/펜스 금지).",
-    "- 구분자 뒤 JSON 에 `message` 키를 넣지 않는다. 설명 텍스트/마크다운/코드블록 펜스 금지.",
+    "### message 규율",
+    "- `message` 는 사용자에게 그대로 보이는 대화다. 선택지를 본문에 나열·언급하지 마라 — 선택지는 `options` 배열로만 (화면엔 칩으로 보인다).",
     "### new_state.steps 형식 (D-005 강제)",
     "steps 를 출력할 때 각 원소는 반드시 `{ \"text\": string, \"timer_sec\": number }` 형태다. **타이머가 필요 없는 스텝도 `timer_sec: 0` 을 명시**한다. 텍스트에 \"3분\"이라 쓰고 timer_sec 를 생략하는 패턴은 금지 — Cook Mode 가 텍스트를 파싱하지 않는다.",
     "### new_state.taste / new_state.texture 형식",

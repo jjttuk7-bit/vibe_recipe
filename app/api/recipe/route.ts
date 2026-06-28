@@ -10,7 +10,6 @@ import { z } from "zod";
 import OpenAI from "openai";
 import {
   EngineResponseSchema,
-  EngineStructuredSchema,
   RecipeStateSchema,
   StageSchema,
   type BuildContext,
@@ -147,14 +146,12 @@ export async function POST(request: Request): Promise<Response> {
       const emitDelta = (text: string) =>
         controller.enqueue(frame({ type: "delta", text }));
       try {
-        // 형식 준수 실패 시 재시도(최대 3회 — gpt-4o-mini 간헐 형식 누락 대비).
-        // 매 재시도 전 흘린 평문을 폐기(reset)하고 다시 스트리밍한다.
+        // JSON 모드 — 유효 JSON 보장. 스키마 검증 실패 시에만 재시도(최대 3회).
         const MAX_ATTEMPTS = 3;
         let result: ParseOk | ParseFail = { ok: false, error: "init" };
         let attemptMessages: RequestBody["messages"] = baseMessages;
         for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-          if (attempt > 1) controller.enqueue(frame({ type: "reset" }));
-          result = await runStreamingAttempt(system, attemptMessages, emitDelta);
+          result = await callEngineJson(system, attemptMessages);
           if (result.ok) break;
           attemptMessages = [
             ...baseMessages,
@@ -174,6 +171,8 @@ export async function POST(request: Request): Promise<Response> {
           return;
         }
 
+        // 검증된 message 를 타이핑처럼 흘린 뒤 done (실 토큰 스트리밍 대체).
+        await streamMessageChunks(result.data.message, emitDelta);
         controller.enqueue(
           frame({
             type: "done",
@@ -207,11 +206,11 @@ export async function POST(request: Request): Promise<Response> {
 }
 
 // ---------------------------------------------------------------------------
-// D-029 — 2단계 스트리밍 + D-004 정확히 1회 재시도
+// 엔진 — OpenAI JSON 모드(단일 객체) + D-004 재시도 (2026-06-29)
+// 2단계 스트리밍(===STATE_JSON===)은 gpt-4o-mini 형식 실패가 잦아 폐기.
+// JSON 모드로 유효 JSON 을 보장받고, 타이핑 느낌은 서버가 message 를 청크로 흘려 유지.
+// D-001(완결 1건 검증 후 diff)·D-002 보존.
 // ---------------------------------------------------------------------------
-
-// 평문(prose)과 구조 JSON 을 가르는 구분자. lib/prompt.ts 출력 명세와 1:1.
-const STATE_DELIMITER = "===STATE_JSON===";
 
 // 클라로 흘려보내는 SSE 이벤트 합 (BuildMode.tsx 의 리더와 1:1).
 type StreamEvent =
@@ -228,62 +227,35 @@ type StreamEvent =
 type ParseOk = { ok: true; data: EngineResponse };
 type ParseFail = { ok: false; error: string };
 
-// 한 번의 LLM 스트리밍 시도. 평문은 emitDelta 로 실시간 방출하고, 구분자
-// 뒤 구조 JSON 은 완결 수신 후 검증한다. 부분 delta 가 구분자를 흘리지 않도록
-// 구분자 길이만큼 꼬리를 보류한다.
-async function runStreamingAttempt(
+// 한 번의 엔진 호출 — JSON 모드로 단일 객체(message 포함 6키)를 받아 검증.
+// JSON 모드가 유효 JSON 을 보장하므로 형식 실패가 거의 없다. 스키마 실패만 재시도.
+async function callEngineJson(
   system: string,
   messages: RequestBody["messages"],
-  emitDelta: (text: string) => void,
 ): Promise<ParseOk | ParseFail> {
-  let full = "";
-  let proseEmitted = 0;
-  let delimIndex = -1;
-
-  for await (const chunk of streamOpenAIText(system, messages)) {
-    full += chunk;
-    if (delimIndex === -1) delimIndex = full.indexOf(STATE_DELIMITER);
-    // 구분자를 찾았으면 그 앞까지가 평문. 아직이면 구분자 길이만큼 보류.
-    const proseEnd =
-      delimIndex !== -1
-        ? delimIndex
-        : Math.max(0, full.length - STATE_DELIMITER.length);
-    if (proseEnd > proseEmitted) {
-      emitDelta(full.slice(proseEmitted, proseEnd));
-      proseEmitted = proseEnd;
-    }
-  }
-
-  // 폴백: 모델이 구분자를 빠뜨리고 message 포함 단일 JSON 을 낸 경우에도 수용.
-  // (스트리밍 버블엔 JSON 이 잠깐 비칠 수 있으나, done 시 깨끗한 message 로 교체됨.)
-  if (delimIndex === -1) {
-    const combined = assembleFromCombined(full);
-    if (combined.ok) return combined;
-    return {
-      ok: false,
-      error: `구분자 ${STATE_DELIMITER} 를 찾지 못했습니다. 평문 메시지 다음 줄에 정확히 ${STATE_DELIMITER} 를 쓰고 구조 JSON 을 이어주세요.`,
-    };
-  }
-  const prose = full.slice(0, delimIndex).trim();
-  const structuredRaw = full.slice(delimIndex + STATE_DELIMITER.length);
-  if (prose.length === 0) {
-    // 평문이 비면 구조 JSON 안에 message 가 있을 수 있다 — 단일 JSON 폴백.
-    const combined = assembleFromCombined(full);
-    if (combined.ok) return combined;
-    return {
-      ok: false,
-      error: `평문 대화 메시지가 비어 있습니다. ${STATE_DELIMITER} 앞에 1~3문장의 대화 메시지를 쓰세요.`,
-    };
-  }
-  return assembleEngineResponse(prose, structuredRaw);
+  const client = getOpenAI();
+  const resp = await client.chat.completions.create({
+    model: vibeRecipeModel(),
+    max_tokens: MAX_TOKENS,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: system },
+      ...messages.map((m) => ({ role: m.role, content: m.content })),
+    ],
+  });
+  const raw = resp.choices[0]?.message?.content ?? "";
+  return parseEngineResponse(raw);
 }
 
-// 폴백 — 구분자 없이 message 까지 포함한 단일 JSON 으로 온 경우 그대로 검증.
-// EngineResponseSchema(message 포함)로 통과하면 수용. D-001 보존(완결 1건 검증).
-function assembleFromCombined(raw: string): ParseOk | ParseFail {
+// JSON 추출 + EngineResponseSchema(message 포함 6키) 검증. D-001 보존(완결 1건).
+function parseEngineResponse(raw: string): ParseOk | ParseFail {
   const json = extractJson(raw);
   if (json === null) {
-    return { ok: false, error: "JSON 객체를 찾지 못했습니다." };
+    return {
+      ok: false,
+      error:
+        "JSON 객체를 찾지 못했습니다. 6개 키(message/stage/new_state/options/change_log/warnings)를 가진 단일 JSON 객체로만 반환하세요.",
+    };
   }
   let parsed: unknown;
   try {
@@ -291,83 +263,35 @@ function assembleFromCombined(raw: string): ParseOk | ParseFail {
   } catch (e) {
     return { ok: false, error: `JSON 파싱 실패: ${(e as Error).message}` };
   }
-  const full = EngineResponseSchema.safeParse(parsed);
-  if (!full.success) {
-    return { ok: false, error: `EngineResponse 검증 실패: ${full.error.message}` };
+  const validated = EngineResponseSchema.safeParse(parsed);
+  if (!validated.success) {
+    return {
+      ok: false,
+      error: `EngineResponse 스키마 검증 실패: ${validated.error.message}`,
+    };
   }
-  return { ok: true, data: full.data };
+  return { ok: true, data: validated.data };
 }
 
-// 흘린 평문(message) + 구분자 뒤 구조 JSON 을 합쳐 EngineResponse 로 검증.
-// new_state 는 여기서 **완결된 1건**으로 safeParse — D-001/D-002 보존.
-function assembleEngineResponse(
-  prose: string,
-  structuredRaw: string,
-): ParseOk | ParseFail {
-  const json = extractJson(structuredRaw);
-  if (json === null) {
-    return {
-      ok: false,
-      error: `${STATE_DELIMITER} 뒤에서 JSON 객체를 찾지 못했습니다. 구분자 뒤에는 단일 JSON 객체만 두세요 (펜스/설명 금지).`,
-    };
+// 타이핑 느낌 — 완결된 message 를 작은 청크로 흘린다(실 토큰 스트리밍 대체).
+async function streamMessageChunks(
+  message: string,
+  emit: (text: string) => void,
+): Promise<void> {
+  const STEP = 2; // 2글자씩, 짧은 간격 — 100자 메시지면 ~0.5초.
+  for (let i = 0; i < message.length; i += STEP) {
+    emit(message.slice(i, i + STEP));
+    await new Promise((r) => setTimeout(r, 10));
   }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(json);
-  } catch (e) {
-    return { ok: false, error: `구조 JSON 파싱 실패: ${(e as Error).message}` };
-  }
-  // 구조 JSON 은 message 를 제외한 5개 키 (EngineStructuredSchema).
-  const structured = EngineStructuredSchema.safeParse(parsed);
-  if (!structured.success) {
-    return {
-      ok: false,
-      error: `EngineStructured 스키마 검증 실패: ${structured.error.message}`,
-    };
-  }
-  // 평문 message 를 합쳐 최종 EngineResponse 로 재검증 (belt + suspenders).
-  const assembled = EngineResponseSchema.safeParse({
-    message: prose,
-    ...structured.data,
-  });
-  if (!assembled.success) {
-    return {
-      ok: false,
-      error: `EngineResponse 조립 검증 실패: ${assembled.error.message}`,
-    };
-  }
-  return { ok: true, data: assembled.data };
 }
 
-// D-004 "컴파일 에러 되던지기" — 검증 에러를 user 메시지로 덧붙여 1회 재시도.
+// D-004 "컴파일 에러 되던지기" — 검증 에러를 user 메시지로 덧붙여 재시도.
 function retryUserMessage(error: string): string {
   return [
     "[시스템 검증 실패 — 다시 한 번 시도합니다]",
-    `직전 응답이 요구된 형식을 만족하지 못했어요. 아래 오류를 보고 정확히 명세대로 (먼저 평문 대화 메시지, 다음 줄에 ${STATE_DELIMITER}, 그 다음 구조 JSON) 다시 보내주세요.`,
+    "직전 응답이 요구된 JSON 계약을 만족하지 못했어요. 아래 오류를 보고, 6개 키(message/stage/new_state/options/change_log/warnings)를 가진 정확한 단일 JSON 객체로만 다시 보내주세요.",
     error,
   ].join("\n");
-}
-
-// OpenAI 스트리밍 — chat.completions delta.content 만 yield.
-// system 은 첫 메시지(role:system)로, 대화는 user/assistant 그대로 전달.
-async function* streamOpenAIText(
-  system: string,
-  messages: RequestBody["messages"],
-): AsyncGenerator<string> {
-  const client = getOpenAI();
-  const stream = await client.chat.completions.create({
-    model: vibeRecipeModel(),
-    max_tokens: MAX_TOKENS,
-    stream: true,
-    messages: [
-      { role: "system", content: system },
-      ...messages.map((m) => ({ role: m.role, content: m.content })),
-    ],
-  });
-  for await (const chunk of stream) {
-    const delta = chunk.choices[0]?.delta?.content;
-    if (delta) yield delta;
-  }
 }
 
 let cachedOpenAI: OpenAI | null = null;
