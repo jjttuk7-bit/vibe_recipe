@@ -183,15 +183,11 @@ export async function POST(request: Request): Promise<Response> {
           }),
         );
         controller.close();
-      } catch {
-        // 네트워크 등 — 안전하게 error 이벤트로 노출.
-        controller.enqueue(
-          frame({
-            type: "error",
-            error: "engine_call_failed",
-            message: "엔진이 응답을 만들지 못했어요. 잠시 후 다시 시도해주세요.",
-          }),
-        );
+      } catch (e) {
+        // OpenAI 한도/결제/키 오류를 구체 메시지로 노출 ("1번 후 중단" 진단용).
+        const { error, message } = openAiErrorMessage(e);
+        console.error("[/api/recipe] engine error:", e);
+        controller.enqueue(frame({ type: "error", error, message }));
         controller.close();
       }
     },
@@ -377,8 +373,49 @@ async function* streamOpenAIText(
 let cachedOpenAI: OpenAI | null = null;
 function getOpenAI(): OpenAI {
   if (cachedOpenAI) return cachedOpenAI;
-  cachedOpenAI = new OpenAI({ apiKey: openaiApiKey() });
+  // maxRetries 1 + 30s 타임아웃 — 한도(429) 오류 때 SDK 의 긴 백오프로
+  // 멈춘 것처럼 보이는 현상("1번 후 중단") 방지. 빠르게 실패→원인 노출.
+  cachedOpenAI = new OpenAI({
+    apiKey: openaiApiKey(),
+    maxRetries: 1,
+    timeout: 30_000,
+  });
   return cachedOpenAI;
+}
+
+// OpenAI 오류를 사용자에게 보일 구체 메시지로 분류. status/code 로 키·결제·한도 구분.
+function openAiErrorMessage(e: unknown): { error: string; message: string } {
+  const err = e as {
+    status?: number;
+    code?: string;
+    error?: { code?: string };
+  };
+  const status = err?.status;
+  const code = err?.code ?? err?.error?.code;
+  if (status === 401 || code === "invalid_api_key") {
+    return {
+      error: "openai_auth",
+      message:
+        "OpenAI 키가 거부됐어요. Vercel 의 OPENAI_API_KEY 값이 맞는지 확인해주세요.",
+    };
+  }
+  if (code === "insufficient_quota") {
+    return {
+      error: "openai_quota",
+      message:
+        "OpenAI 사용 한도/잔액이 소진됐어요. platform.openai.com 의 Billing(결제)을 확인해주세요.",
+    };
+  }
+  if (status === 429 || code === "rate_limit_exceeded") {
+    return {
+      error: "openai_rate_limit",
+      message: "OpenAI 요청 한도에 걸렸어요. 잠시 후 다시 시도해주세요.",
+    };
+  }
+  return {
+    error: "engine_call_failed",
+    message: "엔진이 응답을 만들지 못했어요. 잠시 후 다시 시도해주세요.",
+  };
 }
 
 // 첫 '{' ~ 마지막 '}' 슬라이스. 코드블록 펜스(``` ```)가 섞여 와도 통과 가능.
