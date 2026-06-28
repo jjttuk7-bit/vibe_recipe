@@ -147,21 +147,22 @@ export async function POST(request: Request): Promise<Response> {
       const emitDelta = (text: string) =>
         controller.enqueue(frame({ type: "delta", text }));
       try {
-        // 1차 시도 — 평문 실시간 스트리밍.
-        let result = await runStreamingAttempt(system, baseMessages, emitDelta);
-
-        // D-004 — 정확히 1회 재시도. 흘린 평문을 폐기(reset)하고 다시 스트리밍.
-        if (!result.ok) {
-          controller.enqueue(frame({ type: "reset" }));
-          const retryMessages: RequestBody["messages"] = [
+        // 형식 준수 실패 시 재시도(최대 3회 — gpt-4o-mini 간헐 형식 누락 대비).
+        // 매 재시도 전 흘린 평문을 폐기(reset)하고 다시 스트리밍한다.
+        const MAX_ATTEMPTS = 3;
+        let result: ParseOk | ParseFail = { ok: false, error: "init" };
+        let attemptMessages: RequestBody["messages"] = baseMessages;
+        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+          if (attempt > 1) controller.enqueue(frame({ type: "reset" }));
+          result = await runStreamingAttempt(system, attemptMessages, emitDelta);
+          if (result.ok) break;
+          attemptMessages = [
             ...baseMessages,
             { role: "user", content: retryUserMessage(result.error) },
           ];
-          result = await runStreamingAttempt(system, retryMessages, emitDelta);
         }
 
         if (!result.ok) {
-          // 정확히 1회 재시도 — 3회째 금지 (D-004 / R12).
           controller.enqueue(
             frame({
               type: "error",
@@ -257,21 +258,48 @@ async function runStreamingAttempt(
     }
   }
 
+  // 폴백: 모델이 구분자를 빠뜨리고 message 포함 단일 JSON 을 낸 경우에도 수용.
+  // (스트리밍 버블엔 JSON 이 잠깐 비칠 수 있으나, done 시 깨끗한 message 로 교체됨.)
   if (delimIndex === -1) {
+    const combined = assembleFromCombined(full);
+    if (combined.ok) return combined;
     return {
       ok: false,
       error: `구분자 ${STATE_DELIMITER} 를 찾지 못했습니다. 평문 메시지 다음 줄에 정확히 ${STATE_DELIMITER} 를 쓰고 구조 JSON 을 이어주세요.`,
     };
   }
   const prose = full.slice(0, delimIndex).trim();
+  const structuredRaw = full.slice(delimIndex + STATE_DELIMITER.length);
   if (prose.length === 0) {
+    // 평문이 비면 구조 JSON 안에 message 가 있을 수 있다 — 단일 JSON 폴백.
+    const combined = assembleFromCombined(full);
+    if (combined.ok) return combined;
     return {
       ok: false,
       error: `평문 대화 메시지가 비어 있습니다. ${STATE_DELIMITER} 앞에 1~3문장의 대화 메시지를 쓰세요.`,
     };
   }
-  const structuredRaw = full.slice(delimIndex + STATE_DELIMITER.length);
   return assembleEngineResponse(prose, structuredRaw);
+}
+
+// 폴백 — 구분자 없이 message 까지 포함한 단일 JSON 으로 온 경우 그대로 검증.
+// EngineResponseSchema(message 포함)로 통과하면 수용. D-001 보존(완결 1건 검증).
+function assembleFromCombined(raw: string): ParseOk | ParseFail {
+  const json = extractJson(raw);
+  if (json === null) {
+    return { ok: false, error: "JSON 객체를 찾지 못했습니다." };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch (e) {
+    return { ok: false, error: `JSON 파싱 실패: ${(e as Error).message}` };
+  }
+  const full = EngineResponseSchema.safeParse(parsed);
+  if (!full.success) {
+    return { ok: false, error: `EngineResponse 검증 실패: ${full.error.message}` };
+  }
+  return { ok: true, data: full.data };
 }
 
 // 흘린 평문(message) + 구분자 뒤 구조 JSON 을 합쳐 EngineResponse 로 검증.
