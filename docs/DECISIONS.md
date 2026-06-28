@@ -720,3 +720,36 @@ UI 적용 (D-021 임베드 확장):
   - quickstart 칩 카테고리 확장 — 사용자 fingerprint 기반 *맞춤 시작점* (P3)
   - dead CSS 정리 (별도 cleanup 사이클)
 - **사용자 결정 시점**: 2026-06-21 (architect 권고 자동 채택 + "DR3 cold-start 화면 진행" — `_workspace/02_welding_review_DR3T1.md`).
+
+---
+
+## D-029. BUILD 응답 2단계 스트리밍 (DR4 — 에이전트형 고도화)
+
+**맥락**: 사용자(유케이)가 "고도화된 바이브 코딩처럼 대화로 레시피를 완성하는 경험"을 위해 BUILD 대화의 *에이전트화*를 선택. AskUserQuestion 결과 범위는 **응답 스트리밍 1건**으로 한정(제안/되묻기·근거투명성은 차기). 기존 엔진은 단일 POST → LLM `{message,new_state,...}` 단일 JSON → Zod 검증 → 클라 splitDiff. "셰프가 타이핑하듯" 흘리려면 이 원자성을 어디서 깨느냐가 곧 헌법 문제(D-001 검증 후 diff).
+
+**결정**: **2단계 스트리밍(welding-architect GDR4-1 후보 B, 사용자 채택)**.
+- LLM 출력 = (1)평문 대화 메시지 → (2)`===STATE_JSON===` 단독 줄 → (3)message 제외 5개 키 구조 JSON.
+- 서버는 평문을 SSE `delta` 로 **토큰 실시간** 방출, 구조 JSON 은 **완결 수신 후 1건으로 검증**(D-004 1회 재시도) → `done` 이벤트로 원자 전송.
+- 최종 조립물 `{message, ...structured}` = 기존 EngineResponse 와 동일 shape → 클라 매핑/검증/splitDiff 무손상.
+- SSE 이벤트 4종: `delta`(평문) / `reset`(재시도 — 흘린 평문 폐기) / `done`(검증된 new_state 동봉) / `error`(2회 실패·네트워크).
+- 스트림 시작 *전* 실패(rate limit/auth/buildContext)는 기존 JSON 4xx/5xx 유지.
+
+**이유**:
+- **D-001 보존**: new_state 는 구분자 뒤 구조 JSON 에 통째 → 완결 수신 후 `EngineStructuredSchema`→`EngineResponseSchema` 검증 후에야 splitDiff. 반쪽 상태 렌더 0.
+- **D-002 보존**: diff 는 여전히 클라 코드(splitDiff). 스트리밍은 *대화 텍스트에만* 적용 — "생성을 diff로 보여주는 오용"(D-002) 재발 없음.
+- **D-004 보존**: 검증 실패 시 reset 후 정확히 1회 재시도. 3회째 금지.
+- **§4 무영향**: BuildContext 조회/cold_start 주입/context_used(D-025) 모두 유지 — BUILD 용접 무손상.
+- 후보 A(클라 의사-타이핑)는 *진짜* 스트리밍이 아니고, C(완전 구조 스트리밍)는 D-001 과 최대 충돌이라 비채택.
+
+**결과**:
+- `lib/schema.ts`: `EngineStructuredSchema = EngineResponseSchema.omit({message:true})` (additive, EngineResponse 무변).
+- `lib/prompt.ts` `renderOutputContract()`: 2단계 형식 + 형식 규율 절. 불변 규칙 #2 "JSON 앞 평문" 반영.
+- `app/api/recipe/route.ts`: `[5]` 비스트리밍 → SSE ReadableStream. `streamAnthropicText`(stream:true) / `runStreamingAttempt`(구분자 길이 꼬리 보류) / `assembleEngineResponse` / `retryUserMessage`. 제거: callAnthropic·tryParseEngineResponse·callEngineWithRetry·EngineValidationError.
+- `components/BuildMode.tsx`: `streamingText` state + `consumeRecipeStream`(SSE 파서) + busy 버블 실시간 평문/`.stream-caret`. `StreamClientEvent` 서버 1:1.
+- `app/globals.css`: `.stream-caret` + keyframes.
+- typecheck PASS / 6/6 test PASS / welding-inspector(DR4.T6) PASS 결함 0.
+- **명시적 비범위 / 후속**:
+  - 셰프 제안/되묻기(act/ask 모드) — D-030 후보, 차기 사이클.
+  - 근거 투명성 강화(Plan/Context 메타 확장) — 차기.
+  - cold-hero 첫 응답 스트리밍 미노출(R-DR4-1) — hero→2-pane 즉시 전환 검토.
+- **사용자 결정 시점**: 2026-06-28 (AskUserQuestion: 방식 B + 범위 ① 응답 스트리밍).

@@ -4,6 +4,37 @@
 
 ---
 
+## 세션 11 — 에이전트형 BUILD 고도화 (DR4): 응답 2단계 스트리밍 (D-029)
+
+**일자**: 2026-06-28
+**운영 모드**: viberecipe-orchestrator (리더가 6역할 순차 수행 — 이 하네스 인스턴스에 커스텀 agent_type/TeamCreate 비활성, Phase 게이트는 유지).
+**최종 판정**: DR4.T6 PASS 결함 0. D-029 등재.
+
+### 한 일
+- **Phase 3 사전 가드**: welding-architect 검증 — 후보 3개 중 ①스트리밍만 D-001/D-004 충돌(NEED_USER_DECISION), ②되묻기/③근거투명성은 조건부 PASS. `_workspace/02_welding_review_DR4T1.md`.
+- **사용자 결정**: AskUserQuestion — 스트리밍 방식 **B(2단계)** + 범위 **① 응답 스트리밍만**. ②③은 차기 이월.
+- **schema**: `EngineStructuredSchema = EngineResponseSchema.omit({message:true})` 신설(additive).
+- **prompt**: 출력 명세를 2단계 형식(평문 → `===STATE_JSON===` → 5키 구조 JSON)으로.
+- **engine**: `/api/recipe` 를 SSE ReadableStream 으로. 평문 토큰 실시간(delta) + 구조 JSON 완결 검증 후 done. D-004 1회 재시도(reset 후 재스트림). 비스트리밍 헬퍼 4종 제거.
+- **ui**: `BuildMode` `consumeRecipeStream`(SSE 파서) + `streamingText` + busy 버블 실시간 평문/`.stream-caret`.
+- D-029 ADR 등재. MAP / CLAUDE §9 / SESSION 갱신.
+
+### 검증
+- typecheck PASS / 6/6 test PASS / welding-inspector DR4.T6 결함 0.
+- 용접: D-001(new_state 완결 검증 후 splitDiff)·D-002·D-004 보존, §4 BUILD 무손상.
+
+### 다음 할 일 / 비범위
+1. **D-030 후보 — 셰프 제안/되묻기**: 응답 모드 `act`/`ask`. 모호 입력에 되묻기(상태 없는 턴), 능동 제안=잠정 칩(D-002 정합). 차기 사이클.
+2. **근거 투명성 강화**: Plan(D-024)/Context(D-025) 메타 확장.
+3. **R-DR4-1**: cold-hero 첫 응답 스트리밍 미노출 → hero→2-pane 즉시 전환 검토.
+4. **빌드 검증**: `npm run build` 는 더미 키로 사용자 직접 실행 권고(런타임 env 부재 시 throw, 빌드 자체는 통과).
+5. 미해결 큰 토대: 레시피 저장 API + 로그인 UI(완성 레시피 영속) — 별도 사이클.
+
+### 막힌 것
+- **없음.**
+
+---
+
 ## 세션 10 — 디자인 사이클 3 (DR3): cold-start hero (D-028)
 
 **일자**: 2026-06-21 (세션 9 직후, push 후)

@@ -12,7 +12,7 @@
 |---|---|---|
 | `app/layout.tsx` | RootLayout(`lang="ko"`). **D-026**: `next/font/google`로 Newsreader/JetBrains Mono 등록 → CSS 변수 `--font-newsreader`/`--font-jetbrains-mono` 노출. `<html className>`에 variable 적용. | ✅ |
 | `app/page.tsx` | 엔트리. BUILD/COOK/POSTMORTEM 모드 전환 + dev-shelf(작업용 JWT/recipe_id) + RecipeState/CookRun 상태. **D-027**: pipeline-rail / runtime-inspector 제거. `<section.mode-stage>` + `<aside.page-footer-aside>`(FingerprintCard) 단순 구조. 모드 전환은 헤더 `쿡 모드 →` 버튼 + Cook 종료 자동 진입. | ✅ |
-| `app/api/recipe/route.ts` | BUILD 엔진 라우트. `enforceRateLimit("recipe")` → env 가드 → `RequestBodySchema.safeParse` → `authenticateRequest` → `fetchBuildContext` (D-013) → `callEngineWithRetry` (D-004) → 200 `{ engineResponse, parsedAt, context_used }` (D-025 — 서버가 buildContext 메타 변환 노출). `EngineResponseSchema` 변경 0. `splitDiff`는 클라 책임. | ✅ |
+| `app/api/recipe/route.ts` | BUILD 엔진 라우트. `enforceRateLimit("recipe")` → env 가드 → `RequestBodySchema.safeParse` → `authenticateRequest` → `fetchBuildContext` (D-013) → **D-029 SSE 2단계 스트림**: `streamAnthropicText`(stream:true) → `runStreamingAttempt`(평문 delta 실시간 + 구분자 뒤 구조 JSON 완결) → `assembleEngineResponse`(EngineStructured→EngineResponse 검증, D-004 1회 재시도) → `done` 이벤트 `{engineResponse, parsedAt, context_used}` (D-025). 스트림 전 실패는 JSON 4xx/5xx. `splitDiff`는 클라 책임. | ✅ |
 | `app/api/run/route.ts` | COOK→POSTMORTEM 결과 영속 라우트. rate limit → `authenticateRequest` → `CookRunSchema.safeParse` → 기존 cook_runs/runtime_logs 조회 → `rebuildRuntimeLog` → `recomputeFingerprint` → 사용자 JWT 클라로 `save_cook_run` RPC 단일 호출. | ✅ |
 | `app/api/fingerprint/route.ts` | **신설**. Fingerprint 단건 조회 GET 라우트(D-019 SSOT). `enforceRateLimit("fingerprint")` → `authenticateRequest` → `fetchFingerprintForUser` (D-013 패턴 1회 재시도 후 502) → `200 { fingerprint: Fingerprint \| null }`. | ✅ |
 
@@ -20,7 +20,7 @@
 
 | 파일 | 역할 | 상태 |
 |---|---|---|
-| `lib/schema.ts` | **타입의 단일 진실(SSOT)**. RecipeState/CookRun/RuntimeLog/Fingerprint/BuildContext/EngineResponse/Stage + Step/StepEvent/Outcome/Taste/Texture/Ingredient/KnownIssue/Trait Zod 스키마. D-005 `timer_sec` 강제. 라우트·UI·DB 매핑이 모두 여기를 import. | ✅ |
+| `lib/schema.ts` | **타입의 단일 진실(SSOT)**. RecipeState/CookRun/RuntimeLog/Fingerprint/BuildContext/EngineResponse/**EngineStructured**(D-029 `omit(message)`)/Stage + Step/StepEvent/Outcome/Taste/Texture/Ingredient/KnownIssue/Trait Zod 스키마. D-005 `timer_sec` 강제. 라우트·UI·DB 매핑이 모두 여기를 import. | ✅ |
 | `lib/env.ts` | `import "server-only"` 첫 줄로 클라 번들 진입 차단. `anthropicApiKey`/`vibeRecipeModel`/`upstashRedisRest*`/`supabase*Key`/`rateLimitPerMinute` 등 `requireEnv`/`optionalEnv` 헬퍼. 부재 시 침묵 fallback 없이 즉시 throw. P0 §8.5 강제 첫 면. | ✅ |
 | `lib/ratelimit.ts` | Upstash sliding window 60s rate limit 헬퍼. `enforceRateLimit(request, routeKey)` + `withRateLimitHeaders`. IP 식별은 XFF 첫 토큰 → `x-real-ip` → `"anonymous"` 폴백. 429 시 `Retry-After` + `X-RateLimit-*` 헤더 부착. 두 API 라우트에서 공유. | ✅ |
 | `lib/supabase.ts` | 서버 anon 클라이언트(`supabaseServerAnonClient`, RLS 적용) + service-role 클라이언트(`supabaseServerServiceRoleClient`, RLS 우회). 모듈 헤더에 **"localStorage 사용 금지 — D-007"** 명시. `server-only` import로 클라이언트 진입 차단. | ✅ (클라이언트 골격) / 📋 (실 쿼리 헬퍼는 P1) |

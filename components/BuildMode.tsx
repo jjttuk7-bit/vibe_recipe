@@ -138,6 +138,8 @@ export default function BuildMode({
   const [lastDiff, setLastDiff] = useState<SplitDiff | null>(null);
   const [lastContext, setLastContext] = useState<ContextUsed | null>(null);
   const [busy, setBusy] = useState(false);
+  // D-029 — 스트리밍 중 셰프 버블에 흘러나오는 평문. null=비스트리밍.
+  const [streamingText, setStreamingText] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const [prevSnapshot, setPrevSnapshot] = useState<Snapshot | null>(null);
@@ -147,7 +149,7 @@ export default function BuildMode({
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [messages.length, busy, lastResponse]);
+  }, [messages.length, busy, lastResponse, streamingText]);
 
   const currentIdx = STAGES.findIndex((s) => s.key === stage);
 
@@ -180,6 +182,7 @@ export default function BuildMode({
         : messages;
     const wireMessages = baseMessages.slice(-8);
 
+    setStreamingText("");
     try {
       const response = await fetch("/api/recipe", {
         method: "POST",
@@ -194,15 +197,21 @@ export default function BuildMode({
           stage,
         }),
       });
-      const payload = (await response.json()) as
-        | RecipeSuccessPayload
-        | RecipeErrorPayload;
-      if (!response.ok || !isRecipeSuccessPayload(payload)) {
-        const errorPayload = payload as RecipeErrorPayload;
+
+      // D-029 — 스트림 시작 전 실패(rate limit/auth/buildContext)는 일반 JSON 에러.
+      if (!response.ok || !response.body) {
+        const errorPayload = (await response
+          .json()
+          .catch(() => ({}))) as RecipeErrorPayload;
         throw new Error(
           errorPayload.message ?? errorPayload.error ?? "BUILD 실패",
         );
       }
+
+      // D-029 — SSE 2단계 스트림 소비. 평문은 실시간, new_state 는 done 에서 1건.
+      const payload = await consumeRecipeStream(response.body, (text) =>
+        setStreamingText(text),
+      );
 
       const engineResponse = payload.engineResponse;
       const mergedState = engineResponse.new_state
@@ -228,6 +237,7 @@ export default function BuildMode({
       setError((e as Error).message);
     } finally {
       setBusy(false);
+      setStreamingText(null);
     }
   }
 
@@ -401,7 +411,14 @@ export default function BuildMode({
 
             {busy ? (
               <ChatBubble role="chef" speaker="pair-chef">
-                <p className="typing-indicator">생각 중…</p>
+                {streamingText && streamingText.length > 0 ? (
+                  <p className="bubble-text">
+                    {streamingText}
+                    <span className="stream-caret" aria-hidden="true" />
+                  </p>
+                ) : (
+                  <p className="typing-indicator">생각 중…</p>
+                )}
               </ChatBubble>
             ) : null}
 
@@ -1070,4 +1087,79 @@ function isRecipeSuccessPayload(
   payload: RecipeSuccessPayload | RecipeErrorPayload,
 ): payload is RecipeSuccessPayload {
   return "engineResponse" in payload;
+}
+
+// D-029 — SSE 이벤트 합 (app/api/recipe/route.ts StreamEvent 와 1:1).
+type StreamClientEvent =
+  | { type: "delta"; text: string }
+  | { type: "reset" }
+  | {
+      type: "done";
+      engineResponse: EngineResponse;
+      parsedAt?: string;
+      context_used?: ContextUsed;
+    }
+  | { type: "error"; error?: string; message?: string };
+
+// 2단계 스트림 소비: `data: {json}\n\n` 프레임을 파싱한다.
+//   delta → 누적 평문을 onDelta 로 (실시간 타이핑)
+//   reset → 재시도, 누적 폐기
+//   done  → 검증된 new_state 동봉 성공 페이로드 (D-001/D-002 보존)
+//   error → 2회 실패/네트워크 → throw
+async function consumeRecipeStream(
+  body: ReadableStream<Uint8Array>,
+  onDelta: (text: string) => void,
+): Promise<RecipeSuccessPayload> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let acc = "";
+  let done: RecipeSuccessPayload | null = null;
+  let streamError: { error?: string; message?: string } | null = null;
+
+  for (;;) {
+    const { done: finished, value } = await reader.read();
+    if (finished) break;
+    buffer += decoder.decode(value, { stream: true });
+    let sep = buffer.indexOf("\n\n");
+    while (sep !== -1) {
+      const raw = buffer.slice(0, sep);
+      buffer = buffer.slice(sep + 2);
+      const line = raw.startsWith("data:") ? raw.slice(5).trim() : raw.trim();
+      if (line) {
+        let evt: StreamClientEvent | null = null;
+        try {
+          evt = JSON.parse(line) as StreamClientEvent;
+        } catch {
+          evt = null;
+        }
+        if (evt) {
+          if (evt.type === "delta") {
+            acc += evt.text;
+            onDelta(acc);
+          } else if (evt.type === "reset") {
+            acc = "";
+            onDelta("");
+          } else if (evt.type === "done") {
+            done = {
+              engineResponse: evt.engineResponse,
+              parsedAt: evt.parsedAt,
+              context_used: evt.context_used,
+            };
+          } else if (evt.type === "error") {
+            streamError = { error: evt.error, message: evt.message };
+          }
+        }
+      }
+      sep = buffer.indexOf("\n\n");
+    }
+  }
+
+  if (streamError) {
+    throw new Error(streamError.message ?? streamError.error ?? "BUILD 실패");
+  }
+  if (!done || !isRecipeSuccessPayload(done)) {
+    throw new Error("BUILD 실패");
+  }
+  return done;
 }

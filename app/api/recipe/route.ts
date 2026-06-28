@@ -27,6 +27,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import {
   BuildContextSchema,
   EngineResponseSchema,
+  EngineStructuredSchema,
   RecipeStateSchema,
   StageSchema,
   type BuildContext,
@@ -123,94 +124,246 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
-  // [5] D-004 — Anthropic 호출 + 정확히 1회 재시도.
-  try {
-    const engineResponse = await callEngineWithRetry(body, buildContext);
-    // D-025: Context 투명성 — 서버가 응답 wrapper에 BuildContext 요약 노출.
-    // LLM 응답 contract(EngineResponseSchema)는 무변. 본 메타는 서버가 직접 채움.
-    const contextUsed = {
-      cold_start: buildContext.cold_start,
-      known_issues_count:
-        buildContext.runtime_log?.known_issues.length ?? 0,
-      traits_applied:
-        buildContext.fingerprint?.traits.map((t) => ({
-          key: t.key,
-          label: t.label,
-          confidence: t.confidence,
-        })) ?? [],
-    };
-    return withRateLimitHeaders(
-      jsonResponse(200, {
-        engineResponse,
-        parsedAt: new Date().toISOString(),
-        context_used: contextUsed,
-      }),
-      gate,
-    );
-  } catch (e) {
-    // R12: extractJson 실패와 Zod 실패 모두 EngineValidationError 로 잡힘.
-    // 그 외(네트워크 등)도 안전하게 502 로 노출 — 사용자가 다시 시도하게.
-    const isValidation = e instanceof EngineValidationError;
-    return withRateLimitHeaders(
-      jsonResponse(502, {
-        error: isValidation ? "engine_validation_failed" : "engine_call_failed",
-        message: "엔진이 응답을 만들지 못했어요. 잠시 후 다시 시도해주세요.",
-      }),
-      gate,
-    );
-  }
-}
+  // [5] D-029 — 2단계 스트리밍. 평문 메시지는 토큰 단위 delta 로 흘리고,
+  // 구조 JSON(new_state 포함)은 완결 수신 후 1건으로 검증(D-004 1회 재시도) →
+  // done 이벤트로 원자 전송. D-001(검증 후 diff)·D-002 보존.
+  //
+  // SSE 프레임: `data: {json}\n\n`. json.type:
+  //   - delta : { type, text }            평문 토큰
+  //   - reset : { type }                  재시도 — 흘린 평문 폐기
+  //   - done  : { type, engineResponse, parsedAt, context_used }
+  //   - error : { type, error, message }  2회 실패/네트워크
+  //
+  // 주의: rate limit/auth/buildContext 실패는 [1]~[4] 에서 **스트림 시작 전**
+  // 일반 JSON 4xx/5xx 로 반환된다. 스트림이 열린 뒤에는 200 + error 이벤트.
 
-// ---------------------------------------------------------------------------
-// D-004 / R12 — 정확히 1회 재시도
-// ---------------------------------------------------------------------------
+  // D-025: Context 투명성 — done 이벤트 wrapper에 BuildContext 요약 동봉.
+  const contextUsed = {
+    cold_start: buildContext.cold_start,
+    known_issues_count: buildContext.runtime_log?.known_issues.length ?? 0,
+    traits_applied:
+      buildContext.fingerprint?.traits.map((t) => ({
+        key: t.key,
+        label: t.label,
+        confidence: t.confidence,
+      })) ?? [],
+  };
 
-class EngineValidationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "EngineValidationError";
-  }
-}
-
-async function callEngineWithRetry(
-  input: RequestBody,
-  buildContext: BuildContext,
-): Promise<EngineResponse> {
-  // R13: RequestBodySchema 가 max(8) 이지만 한 번 더 슬라이스. 어떤 경로로든
-  // 8개 초과가 들어와도 토큰 폭발 없음.
-  const trimmedMessages = input.messages.slice(-8);
-
-  // systemPrompt 는 결정적 — 1차/재시도 동일 컨텍스트 위에서 작동.
   const system = buildSystemPrompt({
-    stage: input.stage,
+    stage: body.stage,
     buildContext,
-    recipeState: input.current_state,
+    recipeState: body.current_state,
+  });
+  // R13: max(8) 이지만 한 번 더 슬라이스 — 어떤 경로로든 토큰 폭발 없음.
+  const baseMessages = body.messages.slice(-8);
+
+  const encoder = new TextEncoder();
+  const frame = (obj: StreamEvent): Uint8Array =>
+    encoder.encode(`data: ${JSON.stringify(obj)}\n\n`);
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const emitDelta = (text: string) =>
+        controller.enqueue(frame({ type: "delta", text }));
+      try {
+        // 1차 시도 — 평문 실시간 스트리밍.
+        let result = await runStreamingAttempt(system, baseMessages, emitDelta);
+
+        // D-004 — 정확히 1회 재시도. 흘린 평문을 폐기(reset)하고 다시 스트리밍.
+        if (!result.ok) {
+          controller.enqueue(frame({ type: "reset" }));
+          const retryMessages: RequestBody["messages"] = [
+            ...baseMessages,
+            { role: "user", content: retryUserMessage(result.error) },
+          ];
+          result = await runStreamingAttempt(system, retryMessages, emitDelta);
+        }
+
+        if (!result.ok) {
+          // 정확히 1회 재시도 — 3회째 금지 (D-004 / R12).
+          controller.enqueue(
+            frame({
+              type: "error",
+              error: "engine_validation_failed",
+              message: "엔진이 응답을 만들지 못했어요. 잠시 후 다시 시도해주세요.",
+            }),
+          );
+          controller.close();
+          return;
+        }
+
+        controller.enqueue(
+          frame({
+            type: "done",
+            engineResponse: result.data,
+            parsedAt: new Date().toISOString(),
+            context_used: contextUsed,
+          }),
+        );
+        controller.close();
+      } catch {
+        // 네트워크 등 — 안전하게 error 이벤트로 노출.
+        controller.enqueue(
+          frame({
+            type: "error",
+            error: "engine_call_failed",
+            message: "엔진이 응답을 만들지 못했어요. 잠시 후 다시 시도해주세요.",
+          }),
+        );
+        controller.close();
+      }
+    },
   });
 
-  // 1차 호출.
-  const firstRaw = await callAnthropic(system, trimmedMessages);
-  const firstParsed = tryParseEngineResponse(firstRaw);
-  if (firstParsed.ok) return firstParsed.data;
+  return withRateLimitHeaders(
+    new Response(stream, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+      },
+    }),
+    gate,
+  );
+}
 
-  // 2차 호출 — D-004 "컴파일 에러 되던지기": 검증 에러를 user 메시지로 덧붙임.
-  // extractJson 실패도 검증 실패로 카운트 (R12).
-  const retryMessages: RequestBody["messages"] = [
-    ...trimmedMessages,
-    {
-      role: "user",
-      content: [
-        "[시스템 검증 실패 — 다시 한 번 시도합니다]",
-        "직전 응답이 요구된 JSON 계약을 만족하지 못했어요. 아래 오류를 보고 정확히 명세대로 JSON 만 다시 보내주세요.",
-        firstParsed.error,
-      ].join("\n"),
-    },
-  ];
-  const secondRaw = await callAnthropic(system, retryMessages);
-  const secondParsed = tryParseEngineResponse(secondRaw);
-  if (secondParsed.ok) return secondParsed.data;
+// ---------------------------------------------------------------------------
+// D-029 — 2단계 스트리밍 + D-004 정확히 1회 재시도
+// ---------------------------------------------------------------------------
 
-  // 정확히 1회 재시도 — 3회째는 금지 (D-004 / R12).
-  throw new EngineValidationError(secondParsed.error);
+// 평문(prose)과 구조 JSON 을 가르는 구분자. lib/prompt.ts 출력 명세와 1:1.
+const STATE_DELIMITER = "===STATE_JSON===";
+
+// 클라로 흘려보내는 SSE 이벤트 합 (BuildMode.tsx 의 리더와 1:1).
+type StreamEvent =
+  | { type: "delta"; text: string }
+  | { type: "reset" }
+  | {
+      type: "done";
+      engineResponse: EngineResponse;
+      parsedAt: string;
+      context_used: unknown;
+    }
+  | { type: "error"; error: string; message: string };
+
+type ParseOk = { ok: true; data: EngineResponse };
+type ParseFail = { ok: false; error: string };
+
+// 한 번의 LLM 스트리밍 시도. 평문은 emitDelta 로 실시간 방출하고, 구분자
+// 뒤 구조 JSON 은 완결 수신 후 검증한다. 부분 delta 가 구분자를 흘리지 않도록
+// 구분자 길이만큼 꼬리를 보류한다.
+async function runStreamingAttempt(
+  system: string,
+  messages: RequestBody["messages"],
+  emitDelta: (text: string) => void,
+): Promise<ParseOk | ParseFail> {
+  let full = "";
+  let proseEmitted = 0;
+  let delimIndex = -1;
+
+  for await (const chunk of streamAnthropicText(system, messages)) {
+    full += chunk;
+    if (delimIndex === -1) delimIndex = full.indexOf(STATE_DELIMITER);
+    // 구분자를 찾았으면 그 앞까지가 평문. 아직이면 구분자 길이만큼 보류.
+    const proseEnd =
+      delimIndex !== -1
+        ? delimIndex
+        : Math.max(0, full.length - STATE_DELIMITER.length);
+    if (proseEnd > proseEmitted) {
+      emitDelta(full.slice(proseEmitted, proseEnd));
+      proseEmitted = proseEnd;
+    }
+  }
+
+  if (delimIndex === -1) {
+    return {
+      ok: false,
+      error: `구분자 ${STATE_DELIMITER} 를 찾지 못했습니다. 평문 메시지 다음 줄에 정확히 ${STATE_DELIMITER} 를 쓰고 구조 JSON 을 이어주세요.`,
+    };
+  }
+  const prose = full.slice(0, delimIndex).trim();
+  if (prose.length === 0) {
+    return {
+      ok: false,
+      error: `평문 대화 메시지가 비어 있습니다. ${STATE_DELIMITER} 앞에 1~3문장의 대화 메시지를 쓰세요.`,
+    };
+  }
+  const structuredRaw = full.slice(delimIndex + STATE_DELIMITER.length);
+  return assembleEngineResponse(prose, structuredRaw);
+}
+
+// 흘린 평문(message) + 구분자 뒤 구조 JSON 을 합쳐 EngineResponse 로 검증.
+// new_state 는 여기서 **완결된 1건**으로 safeParse — D-001/D-002 보존.
+function assembleEngineResponse(
+  prose: string,
+  structuredRaw: string,
+): ParseOk | ParseFail {
+  const json = extractJson(structuredRaw);
+  if (json === null) {
+    return {
+      ok: false,
+      error: `${STATE_DELIMITER} 뒤에서 JSON 객체를 찾지 못했습니다. 구분자 뒤에는 단일 JSON 객체만 두세요 (펜스/설명 금지).`,
+    };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch (e) {
+    return { ok: false, error: `구조 JSON 파싱 실패: ${(e as Error).message}` };
+  }
+  // 구조 JSON 은 message 를 제외한 5개 키 (EngineStructuredSchema).
+  const structured = EngineStructuredSchema.safeParse(parsed);
+  if (!structured.success) {
+    return {
+      ok: false,
+      error: `EngineStructured 스키마 검증 실패: ${structured.error.message}`,
+    };
+  }
+  // 평문 message 를 합쳐 최종 EngineResponse 로 재검증 (belt + suspenders).
+  const assembled = EngineResponseSchema.safeParse({
+    message: prose,
+    ...structured.data,
+  });
+  if (!assembled.success) {
+    return {
+      ok: false,
+      error: `EngineResponse 조립 검증 실패: ${assembled.error.message}`,
+    };
+  }
+  return { ok: true, data: assembled.data };
+}
+
+// D-004 "컴파일 에러 되던지기" — 검증 에러를 user 메시지로 덧붙여 1회 재시도.
+function retryUserMessage(error: string): string {
+  return [
+    "[시스템 검증 실패 — 다시 한 번 시도합니다]",
+    `직전 응답이 요구된 형식을 만족하지 못했어요. 아래 오류를 보고 정확히 명세대로 (먼저 평문 대화 메시지, 다음 줄에 ${STATE_DELIMITER}, 그 다음 구조 JSON) 다시 보내주세요.`,
+    error,
+  ].join("\n");
+}
+
+// Anthropic 스트리밍 — text_delta 만 yield. tool_use 등은 본 라우트 미사용.
+async function* streamAnthropicText(
+  system: string,
+  messages: RequestBody["messages"],
+): AsyncGenerator<string> {
+  const client = getAnthropic();
+  const stream = await client.messages.create({
+    model: vibeRecipeModel(),
+    max_tokens: MAX_TOKENS,
+    system,
+    messages: messages.map((m) => ({ role: m.role, content: m.content })),
+    stream: true,
+  });
+  for await (const event of stream) {
+    if (
+      event.type === "content_block_delta" &&
+      event.delta.type === "text_delta"
+    ) {
+      yield event.delta.text;
+    }
+  }
 }
 
 let cachedAnthropic: Anthropic | null = null;
@@ -218,58 +371,6 @@ function getAnthropic(): Anthropic {
   if (cachedAnthropic) return cachedAnthropic;
   cachedAnthropic = new Anthropic({ apiKey: anthropicApiKey() });
   return cachedAnthropic;
-}
-
-async function callAnthropic(
-  system: string,
-  messages: RequestBody["messages"],
-): Promise<string> {
-  const client = getAnthropic();
-  const resp = await client.messages.create({
-    model: vibeRecipeModel(),
-    max_tokens: MAX_TOKENS,
-    system,
-    messages: messages.map((m) => ({ role: m.role, content: m.content })),
-  });
-  // text 블록만 이어붙임. tool_use 등 다른 타입은 본 라우트에서 사용 안 함.
-  const text = resp.content
-    .filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
-    .map((b) => b.text)
-    .join("");
-  return text;
-}
-
-// JSON 추출 + EngineResponseSchema 검증을 한 번에. 어느 단계에서 실패해도
-// { ok: false, error } 로 묶어 D-004 재시도 루프에 보낸다 (R12).
-type ParseOk = { ok: true; data: EngineResponse };
-type ParseFail = { ok: false; error: string };
-
-function tryParseEngineResponse(raw: string): ParseOk | ParseFail {
-  const json = extractJson(raw);
-  if (json === null) {
-    return {
-      ok: false,
-      error:
-        "JSON 객체를 찾지 못했습니다. 응답 전체를 단일 JSON 객체로만 반환하세요 (코드블록 펜스/설명 텍스트 금지).",
-    };
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(json);
-  } catch (e) {
-    return {
-      ok: false,
-      error: `JSON 파싱 실패: ${(e as Error).message}`,
-    };
-  }
-  const validated = EngineResponseSchema.safeParse(parsed);
-  if (!validated.success) {
-    return {
-      ok: false,
-      error: `EngineResponse 스키마 검증 실패: ${validated.error.message}`,
-    };
-  }
-  return { ok: true, data: validated.data };
 }
 
 // 첫 '{' ~ 마지막 '}' 슬라이스. 코드블록 펜스(``` ```)가 섞여 와도 통과 가능.

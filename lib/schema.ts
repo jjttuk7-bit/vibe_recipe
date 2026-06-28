@@ -304,3 +304,18 @@ export const EngineResponseSchema = z.object({
   warnings: z.array(z.string().min(1)),
 });
 export type EngineResponse = z.infer<typeof EngineResponseSchema>;
+
+/**
+ * EngineStructured — D-029 (DR4 2단계 스트리밍).
+ *
+ * 스트리밍 모드에서 LLM 출력은 두 부분이다:
+ *   1. 평문 대화 메시지 (= EngineResponse.message). 토큰 단위로 흘러나간다.
+ *   2. `===STATE_JSON===` 구분자 뒤의 **구조 JSON** = 본 스키마.
+ *
+ * 즉 message 를 제외한 나머지 5개 키. 라우트는 구분자 뒤 JSON 을 본 스키마로
+ * 검증(D-004 1회 재시도)한 뒤, 흘려보낸 평문을 message 로 합쳐 EngineResponse
+ * 로 최종 재검증한다. new_state 는 여전히 **완결 수신 후 1건으로 검증**되므로
+ * D-001(검증 후 diff)·D-002 가 보존된다.
+ */
+export const EngineStructuredSchema = EngineResponseSchema.omit({ message: true });
+export type EngineStructured = z.infer<typeof EngineStructuredSchema>;

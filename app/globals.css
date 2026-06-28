@@ -1283,6 +1283,27 @@ textarea {
   font-style: italic;
 }
 
+/* D-029 — 스트리밍 타이핑 캐럿. 흘러나오는 평문 끝에서 깜빡인다. */
+.stream-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--heat);
+  animation: stream-caret-blink 1s steps(2, start) infinite;
+}
+
+@keyframes stream-caret-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
 .chat-alert {
   align-self: stretch;
 }
