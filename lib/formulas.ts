@@ -20,6 +20,8 @@
 export type FormulaRatio = {
   name: string;
   ratio: string;
+  /** 이 공식으로 만들 수 있는 음식 (검증된 목록 — 메뉴 제안의 기준, 지어내기 금지). */
+  dishes?: string[];
   tip?: string;
   source: string;
   verified: boolean;
@@ -84,13 +86,15 @@ export const KFOOD_PACK: KnowledgePack = {
     {
       name: "고추장 양념(무침)",
       ratio: "고추장 2T : 설탕 1T : 다진마늘 1t : 식초 1T : 참기름 1T : 깨 1t",
-      tip: "오이무침·비빔국수·비빔밥 등. 아삭하게: 오이 살짝 절여 5분 → 물기 닦고 무치기. (매콤·달콤·새콤·고소)",
+      dishes: ["오이무침", "비빔국수", "비빔밥", "상추무침", "매운두부무침"],
+      tip: "아삭하게: 오이 살짝 절여 5분 → 물기 닦고 무치기. (매콤·달콤·새콤·고소)",
       source: "K-Food Formula Kitchen 공식 02 (이미지 자동 추출)",
       verified: false, // 이터레이션 1 — 유케이 확인 대기.
     },
     {
       name: "김치찌개",
       ratio: "김치 1컵 : 김치국물 ½컵 : 다진마늘 1t : 설탕 1t : 물 2컵",
+      dishes: ["김치찌개", "참치김치찌개", "돼지고기김치찌개", "김치국", "김치두부찌개"],
       tip: "너무 시면 설탕 조금 더 + 오래 끓이기.",
       source: "K-Food Formula Kitchen 공식 07 (이미지 자동 추출)",
       verified: false, // 저자(유케이) 확인 전 — 검증 파이프라인 통과 시 true.
@@ -108,8 +112,13 @@ export function renderKnowledgePack(pack: KnowledgePack): string {
     .map((r) => `${r.ingredient}=${r.role}`)
     .join(" / ");
   const cats = pack.formulas.map((f) => f.ko).join("·");
-  const fmt = (r: FormulaRatio): string =>
-    `- ${r.name}: ${r.ratio}${r.tip ? ` (${r.tip})` : ""}`;
+  const fmt = (r: FormulaRatio): string => {
+    const dishes =
+      r.dishes && r.dishes.length > 0
+        ? ` · 만들 수 있는 음식: ${r.dishes.join("/")}`
+        : "";
+    return `- ${r.name}: ${r.ratio}${dishes}${r.tip ? `\n  팁: ${r.tip}` : ""}`;
+  };
   const verified = pack.ratios.filter((r) => r.verified);
   const unverified = pack.ratios.filter((r) => !r.verified);
 
@@ -140,9 +149,11 @@ export function renderKnowledgePack(pack: KnowledgePack): string {
   lines.push(
     "",
     "규율(검증 구조):",
-    "- **공식을 적용하면 그 공식에 적힌 재료 구성만 기본으로 쓴다.** 공식에 없는 양념을 임의로 더하지 마라 — 예: 고추장 무침 공식(고추장·설탕·마늘·식초·참기름·깨)에 **간장을 넣지 않는다.** 사용자가 명시 요청할 때만 추가.",
+    "- **메뉴 제안은 위 '만들 수 있는 음식' 목록에서만** 한다. 목록에 없는 메뉴(예: 실제로 잘 안 만드는 '오이전')를 지어내지 마라.",
+    "- **공식을 적용하면 그 공식의 전체 양념 구성을 기본(new_state)에 자동 포함**한다 (예: 고추장 무침 → 고추장·설탕·마늘·식초·참기름·깨 전부). 공식 양념을 '골라 추가'하라고 묻지 마라 — 이미 기본이다. 물을 땐 \"공식대로 양념 다 잡았어, 특별히 더할 거 없으면 이대로 가자\"처럼 안내하고, options 는 공식 *밖*의 진짜 선택지(예: 오이무침에 양파·당근)이거나 비운다. 초보가 막막하지 않게.",
+    "- 공식에 없는 양념을 임의로 더하지 마라 — 예: 고추장 무침에 **간장 금지.** 사용자 명시 요청 시만.",
     "- 조절은 재료-맛 역할에 **근거**해 설명한다(예: \"더 매콤 = 고추장 한 술\").",
-    "- **검증된 비율만 '공식 비율'로 단정**하고, 미검증은 공식 논리로 추론하되 \"정확 비율은 확정 전\"임을 밝힌다. 비율·재료를 지어내지 마라.",
+    "- **검증된 비율만 '공식 비율'로 단정**, 미검증은 공식 논리로 추론하되 정확 비율은 확정 전임을 밝힌다. 비율·재료를 지어내지 마라.",
   );
   return lines.join("\n");
 }
