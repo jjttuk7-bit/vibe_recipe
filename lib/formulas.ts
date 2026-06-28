@@ -82,6 +82,13 @@ export const KFOOD_PACK: KnowledgePack = {
   measuring: ["1큰술(T) = 15ml", "1작은술(t) = 5ml", "종이컵 = 180ml"],
   ratios: [
     {
+      name: "고추장 양념(무침)",
+      ratio: "고추장 2T : 설탕 1T : 다진마늘 1t : 식초 1T : 참기름 1T : 깨 1t",
+      tip: "오이무침·비빔국수·비빔밥 등. 아삭하게: 오이 살짝 절여 5분 → 물기 닦고 무치기. (매콤·달콤·새콤·고소)",
+      source: "K-Food Formula Kitchen 공식 02 (이미지 자동 추출)",
+      verified: false, // 이터레이션 1 — 유케이 확인 대기.
+    },
+    {
       name: "김치찌개",
       ratio: "김치 1컵 : 김치국물 ½컵 : 다진마늘 1t : 설탕 1t : 물 2컵",
       tip: "너무 시면 설탕 조금 더 + 오래 끓이기.",
