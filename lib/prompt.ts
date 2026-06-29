@@ -332,6 +332,7 @@ function renderOutputContract(): string {
     "- `message` 는 대화다. **각 선택지의 '왜 좋은지'는 options[].why 에** 담는다(칩에 표시됨) — message 에서 'A, B, C 옵션 제안' 식 메타 나열은 금지. message 는 짧게 방향만 잡고, 구체 이유는 why 가 보여준다.",
     "### new_state.ingredients 형식 (역할 분화)",
     "각 재료는 `{ \"name\", \"amount\", \"role\", \"prep\"?, \"optional\"? }`. **모든 재료에 role 을 반드시 붙인다(생략 금지)**: 주재료=main / 부재료=sub / 양념·소스=seasoning / 고명·곁들임=garnish. prep 은 손질(예: \"다진\", \"채썬\"), optional 은 없어도 되면 true. amount 는 분량 문자열(예: \"2큰술\", \"200g\", \"1개\").",
+    "**⚠️ 주재료 누락 금지**: 요리명의 핵심 재료(예: 삼겹살 볶음 → 삼겹살)는 *반드시* ingredients 에 role:main + 분량으로 넣는다. 스텝에서 쓰는 재료는 전부 ingredients 에 있어야 한다 — 빠뜨리면 안 됨.",
     "### new_state.steps 형식 (D-005 강제)",
     "steps 를 출력할 때 각 원소는 반드시 `{ \"text\": string, \"timer_sec\": number }` 형태다. **타이머가 필요 없는 스텝도 `timer_sec: 0` 을 명시**한다. 텍스트에 \"3분\"이라 쓰고 timer_sec 를 생략하는 패턴은 금지 — Cook Mode 가 텍스트를 파싱하지 않는다.",
     "### new_state.taste / new_state.texture 형식",

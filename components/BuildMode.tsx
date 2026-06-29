@@ -1087,10 +1087,16 @@ function recipeToText(r: RecipeState): string {
   if (r.concept) lines.push(r.concept);
   if (r.ingredients && r.ingredients.length > 0) {
     lines.push("", "[재료]");
-    for (const ing of r.ingredients) {
-      const prep = ing.prep ? ` ${ing.prep}` : "";
-      const opt = ing.optional ? " (선택)" : "";
-      lines.push(`- ${ing.name}${prep} ${ing.amount}${opt}`);
+    const hasRoles = r.ingredients.some((i) => i.role);
+    for (const role of ING_ROLE_ORDER) {
+      const items = r.ingredients.filter((i) => (i.role ?? "etc") === role);
+      if (items.length === 0) continue;
+      if (hasRoles) lines.push(`· ${ING_ROLE_LABEL[role]}`);
+      for (const ing of items) {
+        const prep = ing.prep ? ` ${ing.prep}` : "";
+        const opt = ing.optional ? " (선택)" : "";
+        lines.push(`  - ${ing.name}${prep} ${ing.amount}${opt}`);
+      }
     }
   }
   if (r.tools && r.tools.length > 0) lines.push("", `[도구] ${r.tools.join(", ")}`);

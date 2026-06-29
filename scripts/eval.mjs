@@ -126,6 +126,13 @@ const CASES = [
         name: "재료 3개+ 드래프트(주+부+양념)",
         fn: (r) => (r.new_state?.ingredients ?? []).length >= 3,
       },
+      {
+        name: "주재료(삼겹살) 포함",
+        fn: (r) =>
+          (r.new_state?.ingredients ?? []).some((i) =>
+            i.name.includes("삼겹살"),
+          ),
+      },
     ],
   },
 ];
