@@ -833,27 +833,11 @@ function RecipeCanvas({
       {recipeState!.ingredients && recipeState!.ingredients.length > 0 ? (
         <div className="canvas-section">
           <div className="canvas-section-label">재료</div>
-          <div className="artifact-chips">
-            {recipeState!.ingredients.map((ing, idx) => (
-              <span key={`${idx}-${ing.name}`} className="artifact-chip">
-                <span className="chip-text">
-                  {ing.name}
-                  <em>{ing.amount}</em>
-                </span>
-                <button
-                  type="button"
-                  className="chip-remove"
-                  aria-label={`${ing.name} 빼기`}
-                  disabled={!editable}
-                  onClick={() =>
-                    onMutate({ kind: "ingredient_remove", index: idx, name: ing.name })
-                  }
-                >
-                  ✕
-                </button>
-              </span>
-            ))}
-          </div>
+          <IngredientGroups
+            ingredients={recipeState!.ingredients}
+            editable={editable}
+            onMutate={onMutate}
+          />
         </div>
       ) : null}
 
@@ -1174,6 +1158,73 @@ function formatTimer(sec: number): string {
   return `${m}분 ${s}초`;
 }
 
+// 재료를 역할(주재료/부재료/양념/고명)별로 묶어 렌더. remove 는 원본 인덱스 보존.
+const ING_ROLE_ORDER = ["main", "sub", "seasoning", "garnish", "etc"] as const;
+const ING_ROLE_LABEL: Record<string, string> = {
+  main: "주재료",
+  sub: "부재료",
+  seasoning: "양념",
+  garnish: "고명",
+  etc: "재료",
+};
+
+function IngredientGroups({
+  ingredients,
+  editable,
+  onMutate,
+}: {
+  ingredients: NonNullable<RecipeState["ingredients"]>;
+  editable: boolean;
+  onMutate: (m: Mutation) => void;
+}): React.ReactElement {
+  const withIdx = ingredients.map((ing, idx) => ({ ing, idx }));
+  const hasRoles = withIdx.some(({ ing }) => Boolean(ing.role));
+  const groups = ING_ROLE_ORDER.map((role) => ({
+    role,
+    label: ING_ROLE_LABEL[role]!,
+    items: withIdx.filter(({ ing }) => (ing.role ?? "etc") === role),
+  })).filter((g) => g.items.length > 0);
+
+  return (
+    <>
+      {groups.map((g) => (
+        <div key={g.role} className="ingredient-group">
+          {hasRoles ? (
+            <span className="ingredient-group-label">{g.label}</span>
+          ) : null}
+          <div className="artifact-chips">
+            {g.items.map(({ ing, idx }) => (
+              <span key={`${idx}-${ing.name}`} className="artifact-chip">
+                <span className="chip-text">
+                  {ing.name}
+                  {ing.prep ? <span className="chip-prep"> {ing.prep}</span> : null}
+                  {ing.optional ? <span className="chip-opt"> 선택</span> : null}
+                  <em>{ing.amount}</em>
+                </span>
+                <button
+                  type="button"
+                  className="chip-remove"
+                  aria-label={`${ing.name} 빼기`}
+                  disabled={!editable}
+                  onClick={() =>
+                    onMutate({
+                      kind: "ingredient_remove",
+                      index: idx,
+                      name: ing.name,
+                    })
+                  }
+                >
+                  ✕
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
 // 완성 레시피를 복사용 평문으로. (결과 활용 — 부엌에 들고 가서 보기)
 function recipeToText(r: RecipeState): string {
   const lines: string[] = [];
@@ -1181,7 +1232,11 @@ function recipeToText(r: RecipeState): string {
   if (r.concept) lines.push(r.concept);
   if (r.ingredients && r.ingredients.length > 0) {
     lines.push("", "[재료]");
-    for (const ing of r.ingredients) lines.push(`- ${ing.name} ${ing.amount}`);
+    for (const ing of r.ingredients) {
+      const prep = ing.prep ? ` ${ing.prep}` : "";
+      const opt = ing.optional ? " (선택)" : "";
+      lines.push(`- ${ing.name}${prep} ${ing.amount}${opt}`);
+    }
   }
   if (r.tools && r.tools.length > 0) lines.push("", `[도구] ${r.tools.join(", ")}`);
   if (r.time_min) lines.push(`[시간] 약 ${r.time_min}분`);

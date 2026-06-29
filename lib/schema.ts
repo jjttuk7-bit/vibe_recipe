@@ -47,9 +47,25 @@ export type Stage = z.infer<typeof StageSchema>;
 // 1. RecipeState — 레시피 = 코드베이스 (DATA_MODEL.md §1)
 // ───────────────────────────────────────────────────────────────────────────
 
+/**
+ * 재료 역할 — RECIPE_ANATOMY §3 (재료를 역할별로 쪼갠다).
+ * main=주재료 / sub=부재료 / seasoning=양념·소스 / garnish=고명·곁들임.
+ * 옵셔널: 기존 레시피·미분류 재료는 role 없이도 동작(평면 렌더).
+ */
+export const IngredientRoleSchema = z.enum([
+  "main",
+  "sub",
+  "seasoning",
+  "garnish",
+]);
+export type IngredientRole = z.infer<typeof IngredientRoleSchema>;
+
 export const IngredientSchema = z.object({
   name: z.string().min(1),
   amount: z.string().min(1),
+  role: IngredientRoleSchema.optional(),
+  prep: z.string().min(1).optional(), // 손질 (예: "다진", "채썬")
+  optional: z.boolean().optional(), // 없어도 되는 재료면 true
 });
 export type Ingredient = z.infer<typeof IngredientSchema>;
 

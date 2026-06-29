@@ -324,6 +324,8 @@ function renderOutputContract(): string {
     "- 헷갈리면: \"이걸 두세 개 같이 넣을 수 있나?\" 가 예이면 multi, 아니오면 single.",
     "### message 규율",
     "- `message` 는 사용자에게 그대로 보이는 대화다. 선택지를 본문에 나열·언급하지 마라 — 선택지는 `options` 배열로만 (화면엔 칩으로 보인다). multi 일 때도 \"여러 개 골라도 돼\" 정도만, 항목을 줄줄 읊지 마라.",
+    "### new_state.ingredients 형식 (역할 분화)",
+    "각 재료는 `{ \"name\", \"amount\", \"role\", \"prep\"?, \"optional\"? }`. **role 로 분류**한다: 주재료=main / 부재료=sub / 양념·소스=seasoning / 고명·곁들임=garnish. prep 은 손질(예: \"다진\", \"채썬\"), optional 은 없어도 되면 true. amount 는 분량 문자열(예: \"2큰술\", \"200g\", \"1개\").",
     "### new_state.steps 형식 (D-005 강제)",
     "steps 를 출력할 때 각 원소는 반드시 `{ \"text\": string, \"timer_sec\": number }` 형태다. **타이머가 필요 없는 스텝도 `timer_sec: 0` 을 명시**한다. 텍스트에 \"3분\"이라 쓰고 timer_sec 를 생략하는 패턴은 금지 — Cook Mode 가 텍스트를 파싱하지 않는다.",
     "### new_state.taste / new_state.texture 형식",
