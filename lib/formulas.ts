@@ -9,6 +9,8 @@
 // *실제로 확인된* 부분만 담는다. 미확인 공식의 정확 비율은 비워 두고(지어내지 않음),
 // 셰프는 재료-맛 역할 맵 + 공식 논리로 합리적으로 보정한다.
 
+import type { Ingredient } from "@/lib/schema";
+
 /**
  * 공식 실전 비율 — **출처·검증 플래그 필수**.
  *
@@ -104,6 +106,48 @@ export const KFOOD_PACK: KnowledgePack = {
 
 // 현재 활성 팩 (교체 지점). 다른 요리권 팩을 만들면 여기서 바꾼다.
 export const ACTIVE_PACK: KnowledgePack = KFOOD_PACK;
+
+// ───────────────────────────────────────────────────────────────────────────
+// 결정적 role 추론 (LLM 누락 보완) — 양념/향신 이름은 코드가 seasoning 으로.
+// eval 에서 role 이 모델 무관하게 0/3 으로 안 잡혀 도입(서버가 보장).
+// L2 팩 지식(요리권별 양념 목록) → 코어(route)는 이 함수를 호출만.
+// ───────────────────────────────────────────────────────────────────────────
+const SEASONING_KEYWORDS = [
+  "간장",
+  "고추장",
+  "고춧가루",
+  "된장",
+  "쌈장",
+  "식초",
+  "설탕",
+  "소금",
+  "후추",
+  "참기름",
+  "들기름",
+  "고추기름",
+  "참깨",
+  "깨소금",
+  "마늘",
+  "대파",
+  "쪽파",
+  "생강",
+  "굴소스",
+  "액젓",
+  "물엿",
+  "올리고당",
+  "미림",
+  "맛술",
+];
+
+export function enrichIngredientRoles(
+  ingredients: Ingredient[],
+): Ingredient[] {
+  return ingredients.map((ing) => {
+    if (ing.role) return ing;
+    const isSeasoning = SEASONING_KEYWORDS.some((k) => ing.name.includes(k));
+    return isSeasoning ? { ...ing, role: "seasoning" as const } : ing;
+  });
+}
 
 // 시스템 프롬프트에 주입할 한식 지식 섹션 문자열.
 // 검증 구조: 비율을 verified / 미검증으로 갈라 셰프에게 다르게 쓰게 한다.

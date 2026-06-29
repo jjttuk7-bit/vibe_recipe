@@ -45,6 +45,7 @@ require.extensions[".ts"] = (mod, filename) => {
 
 const { buildSystemPrompt } = require("@/lib/prompt");
 const { EngineResponseSchema } = require("@/lib/schema");
+const { enrichIngredientRoles } = require("@/lib/formulas");
 
 const DEMO_CTX = { runtime_log: null, fingerprint: null, cold_start: true };
 const RUNS = Number(process.env.EVAL_RUNS || 3);
@@ -82,10 +83,10 @@ const CASES = [
     ],
   },
   {
-    name: "재료 역할 분화",
+    name: "재료 역할 분화(드래프트 시점)",
     stage: "base",
-    current_state: null,
-    messages: [{ role: "user", content: "삼겹살이랑 깻잎, 마늘 있어" }],
+    current_state: { name: "삼겹살 볶음", concept: "삼겹살 채소 볶음" },
+    messages: [{ role: "user", content: "재료랑 양념 잡아줘" }],
     checks: [
       {
         name: "role 부여됨",
@@ -155,7 +156,15 @@ async function runOnce(client, c) {
   } catch (e) {
     return { ok: false, err: `JSON.parse 실패: ${e.message}` };
   }
-  if (parsed.success) return { ok: true, data: parsed.data };
+  if (parsed.success) {
+    const data = parsed.data;
+    if (data.new_state?.ingredients) {
+      data.new_state.ingredients = enrichIngredientRoles(
+        data.new_state.ingredients,
+      );
+    }
+    return { ok: true, data };
+  }
   const why = parsed.error.issues
     .map((i) => `${i.path.join(".")}: ${i.message}`)
     .join(" | ");

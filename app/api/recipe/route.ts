@@ -19,6 +19,7 @@ import {
 import { enforceRateLimit, withRateLimitHeaders } from "@/lib/ratelimit";
 import { openaiApiKey, vibeRecipeModel } from "@/lib/env";
 import { buildSystemPrompt } from "@/lib/prompt";
+import { enrichIngredientRoles } from "@/lib/formulas";
 
 export const runtime = "nodejs";
 
@@ -182,6 +183,15 @@ export async function POST(request: Request): Promise<Response> {
           return;
         }
 
+        // 결정적 role 보완 — 양념/향신 이름은 코드가 seasoning 으로(LLM 누락 보강).
+        if (result.data.new_state?.ingredients) {
+          result.data.new_state = {
+            ...result.data.new_state,
+            ingredients: enrichIngredientRoles(
+              result.data.new_state.ingredients,
+            ),
+          };
+        }
         // 스트리밍으로 이미 message 를 흘렸으므로 바로 done (최종 검증본 동봉).
         controller.enqueue(
           frame({
