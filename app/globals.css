@@ -2176,3 +2176,53 @@ textarea {
   font-size: 0.82em;
   font-style: italic;
 }
+
+/* ================================================================ */
+/* 바이브 생동감 — 캔버스 요소 등장 + 게이지 차오름 (2026-06-29)      */
+/* ================================================================ */
+@keyframes canvas-rise {
+  from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes gauge-grow {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+/* 새로 마운트되는(추가되는) 요소가 부드럽게 떠오름 */
+.recipe-canvas .canvas-title,
+.recipe-canvas .canvas-concept,
+.recipe-canvas .canvas-meta,
+.recipe-canvas .artifact-chip,
+.recipe-canvas .canvas-step,
+.recipe-canvas .gauge-row {
+  animation: canvas-rise 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* 칩 살짝 계단식(cascade) — 한꺼번에 안 뜨고 차례로 */
+.artifact-chips .artifact-chip:nth-child(2) { animation-delay: 0.04s; }
+.artifact-chips .artifact-chip:nth-child(3) { animation-delay: 0.08s; }
+.artifact-chips .artifact-chip:nth-child(4) { animation-delay: 0.12s; }
+.artifact-chips .artifact-chip:nth-child(5) { animation-delay: 0.16s; }
+.artifact-chips .artifact-chip:nth-child(n + 6) { animation-delay: 0.2s; }
+
+/* 게이지: 등장 시 0→값까지 차오르고, +/- 변경은 부드럽게 */
+.gauge-fill {
+  transform-origin: left center;
+  animation: gauge-grow 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+  transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 접근성 — 모션 줄이기 선호 시 끔 */
+@media (prefers-reduced-motion: reduce) {
+  .recipe-canvas .canvas-title,
+  .recipe-canvas .canvas-concept,
+  .recipe-canvas .canvas-meta,
+  .recipe-canvas .artifact-chip,
+  .recipe-canvas .canvas-step,
+  .recipe-canvas .gauge-row,
+  .gauge-fill {
+    animation: none;
+    transition: none;
+  }
+}
