@@ -736,6 +736,8 @@ function RecipeCanvas({
   onMutate: (m: Mutation) => void;
   editable: boolean;
 }): React.ReactElement {
+  // 맛·식감은 기본 읽기(얇은 바), "조절하기" 누르면 −/+ 컨트롤 노출.
+  const [gaugeEdit, setGaugeEdit] = useState(false);
   const empty =
     !hasResponse ||
     !recipeState ||
@@ -830,7 +832,18 @@ function RecipeCanvas({
 
       {(recipeState!.taste !== undefined || recipeState!.texture !== undefined) ? (
         <div className="canvas-section">
-          <div className="canvas-section-label">맛 · 식감</div>
+          <div className="canvas-section-head">
+            <div className="canvas-section-label">맛 · 식감</div>
+            {editable ? (
+              <button
+                type="button"
+                className="section-edit-toggle"
+                onClick={() => setGaugeEdit((prev) => !prev)}
+              >
+                {gaugeEdit ? "완료" : "조절하기"}
+              </button>
+            ) : null}
+          </div>
           <div className="gauges-card-inner">
             {recipeState!.taste ? (
               <GaugeGroup
@@ -840,6 +853,7 @@ function RecipeCanvas({
                 labels={TASTE_LABELS as Record<string, string>}
                 onMutate={onMutate}
                 editable={editable}
+                showControls={gaugeEdit}
               />
             ) : null}
             {recipeState!.texture ? (
@@ -850,6 +864,7 @@ function RecipeCanvas({
                 labels={TEXTURE_LABELS as Record<string, string>}
                 onMutate={onMutate}
                 editable={editable}
+                showControls={gaugeEdit}
               />
             ) : null}
           </div>
@@ -886,6 +901,7 @@ function GaugeGroup({
   labels,
   onMutate,
   editable,
+  showControls,
 }: {
   title: string;
   group: "taste" | "texture";
@@ -893,6 +909,7 @@ function GaugeGroup({
   labels: Record<string, string>;
   onMutate: (m: Mutation) => void;
   editable: boolean;
+  showControls: boolean;
 }): React.ReactElement {
   return (
     <div className="gauges-group">
@@ -911,42 +928,44 @@ function GaugeGroup({
               <div className="gauge-fill" style={{ width: `${(v / 10) * 100}%` }} />
             </div>
             <span className="gauge-val">{v}</span>
-            <div className="gauge-buttons">
-              <button
-                type="button"
-                className="gauge-btn"
-                aria-label={`${labels[k] ?? k} 낮추기`}
-                disabled={!editable || v <= 0}
-                onClick={() =>
-                  onMutate({
-                    kind: "gauge_change",
-                    group,
-                    key: k as keyof Taste | keyof Texture,
-                    from: v,
-                    to: Math.max(0, v - 1),
-                  })
-                }
-              >
-                −
-              </button>
-              <button
-                type="button"
-                className="gauge-btn"
-                aria-label={`${labels[k] ?? k} 올리기`}
-                disabled={!editable || v >= 10}
-                onClick={() =>
-                  onMutate({
-                    kind: "gauge_change",
-                    group,
-                    key: k as keyof Taste | keyof Texture,
-                    from: v,
-                    to: Math.min(10, v + 1),
-                  })
-                }
-              >
-                +
-              </button>
-            </div>
+            {showControls && editable ? (
+              <div className="gauge-buttons">
+                <button
+                  type="button"
+                  className="gauge-btn"
+                  aria-label={`${labels[k] ?? k} 낮추기`}
+                  disabled={v <= 0}
+                  onClick={() =>
+                    onMutate({
+                      kind: "gauge_change",
+                      group,
+                      key: k as keyof Taste | keyof Texture,
+                      from: v,
+                      to: Math.max(0, v - 1),
+                    })
+                  }
+                >
+                  −
+                </button>
+                <button
+                  type="button"
+                  className="gauge-btn"
+                  aria-label={`${labels[k] ?? k} 올리기`}
+                  disabled={v >= 10}
+                  onClick={() =>
+                    onMutate({
+                      kind: "gauge_change",
+                      group,
+                      key: k as keyof Taste | keyof Texture,
+                      from: v,
+                      to: Math.min(10, v + 1),
+                    })
+                  }
+                >
+                  +
+                </button>
+              </div>
+            ) : null}
           </div>
         ))}
       </div>
@@ -1047,20 +1066,19 @@ function IngredientGroups({
           {hasRoles ? (
             <span className="ingredient-group-label">{g.label}</span>
           ) : null}
-          <div className="artifact-chips">
-            {g.items.map(({ ing, idx }) => (
-              <span key={`${idx}-${ing.name}`} className="artifact-chip">
-                <span className="chip-text">
-                  {ing.name}
-                  {ing.prep ? <span className="chip-prep"> {ing.prep}</span> : null}
-                  {ing.optional ? <span className="chip-opt"> 선택</span> : null}
-                  <em>{ing.amount}</em>
-                </span>
+          {g.items.map(({ ing, idx }) => (
+            <div key={`${idx}-${ing.name}`} className="ing-row">
+              <span className="ing-name">
+                {ing.name}
+                {ing.prep ? <span className="ing-prep"> {ing.prep}</span> : null}
+                {ing.optional ? <span className="ing-opt"> 선택</span> : null}
+              </span>
+              <span className="ing-amount">{ing.amount}</span>
+              {editable ? (
                 <button
                   type="button"
-                  className="chip-remove"
+                  className="ing-remove"
                   aria-label={`${ing.name} 빼기`}
-                  disabled={!editable}
                   onClick={() =>
                     onMutate({
                       kind: "ingredient_remove",
@@ -1071,9 +1089,9 @@ function IngredientGroups({
                 >
                   ✕
                 </button>
-              </span>
-            ))}
-          </div>
+              ) : null}
+            </div>
+          ))}
         </div>
       ))}
     </>
