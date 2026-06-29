@@ -57,13 +57,27 @@ export type Stage = z.infer<typeof StageSchema>;
  * main=주재료 / sub=부재료 / seasoning=양념·소스 / garnish=고명·곁들임.
  * 옵셔널: 기존 레시피·미분류 재료는 role 없이도 동작(평면 렌더).
  */
-export const IngredientRoleSchema = z.enum([
-  "main",
-  "sub",
-  "seasoning",
-  "garnish",
-]);
-export type IngredientRole = z.infer<typeof IngredientRoleSchema>;
+export type IngredientRole = "main" | "sub" | "seasoning" | "garnish";
+
+// 한글/영문/이상값 모두 수용 → enum 또는 undefined.
+// (role 하나 때문에 응답 전체가 검증 실패하던 문제 차단 — eval 에서 base 검증율
+//  1/3 로 발견. mini 가 role:"양념" 처럼 한글로 내도 매핑해 살린다.)
+const ROLE_ALIAS: Record<string, IngredientRole> = {
+  주재료: "main",
+  부재료: "sub",
+  양념: "seasoning",
+  소스: "seasoning",
+  고명: "garnish",
+  곁들임: "garnish",
+  main: "main",
+  sub: "sub",
+  seasoning: "seasoning",
+  garnish: "garnish",
+};
+export const IngredientRoleSchema = z.preprocess(
+  (v) => (typeof v === "string" ? ROLE_ALIAS[v.trim()] : undefined),
+  z.enum(["main", "sub", "seasoning", "garnish"]).optional(),
+);
 
 export const IngredientSchema = z.object({
   name: z.string().min(1),

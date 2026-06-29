@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "test": "node scripts/test.mjs",
+    "eval": "node scripts/eval.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "next lint"
   },
