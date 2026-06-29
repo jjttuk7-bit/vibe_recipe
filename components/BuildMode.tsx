@@ -2,12 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { splitDiff, type SplitDiff } from "@/lib/diff";
-import {
-  STAGE_PLANS,
-  FIELD_LABELS,
-  isFieldFilled,
-  type RecipeField,
-} from "@/lib/stagePlan";
 import type {
   EngineResponse,
   RecipeState,
@@ -589,7 +583,6 @@ export default function BuildMode({
           <RecipeCanvas
             recipeState={recipeState}
             diff={lastDiff}
-            context={lastContext}
             stage={stage}
             hasResponse={hasResponse}
             onMutate={applyMutation}
@@ -759,7 +752,6 @@ function ChatBubble({
 function RecipeCanvas({
   recipeState,
   diff,
-  context,
   stage,
   hasResponse,
   onMutate,
@@ -767,7 +759,6 @@ function RecipeCanvas({
 }: {
   recipeState: RecipeState | null;
   diff: SplitDiff | null;
-  context: ContextUsed | null;
   stage: Stage;
   hasResponse: boolean;
   onMutate: (m: Mutation) => void;
@@ -802,7 +793,7 @@ function RecipeCanvas({
     <div className="recipe-canvas">
       <div className="canvas-head">
         <span className="canvas-eyebrow">
-          RECIPE · {stage === "done" ? "완성" : "작성 중"}
+          {stage === "done" ? "✅ 레시피 완성" : "🍳 만드는 중"}
         </span>
         <span className="canvas-head-right">
           {modifiedCount > 0 ? (
@@ -912,11 +903,6 @@ function RecipeCanvas({
         </div>
       ) : null}
 
-      {/* 메타 영역 (D-024 + D-025) — 카드 하단 작게 */}
-      <div className="canvas-meta-block">
-        <StagePlanCardMini stage={stage} recipeState={recipeState} />
-        {context ? <ContextMetaCardMini context={context} /> : null}
-      </div>
     </div>
   );
 }
@@ -992,109 +978,6 @@ function GaugeGroup({
           </div>
         ))}
       </div>
-    </div>
-  );
-}
-
-function StagePlanCardMini({
-  stage,
-  recipeState,
-}: {
-  stage: Stage;
-  recipeState: RecipeState | null;
-}): React.ReactElement {
-  const plan = STAGE_PLANS[stage];
-  return (
-    <div className="plan-card plan-card-mini" aria-label={`${stage} 단계 plan`}>
-      <div className="plan-head">
-        <span className="plan-title">이번 단계 합의 항목</span>
-        <span className="plan-stage">stage::{stage}</span>
-      </div>
-      <ul className="plan-list">
-        {plan.required.map((field) => (
-          <PlanRow
-            key={`req-${field}`}
-            field={field}
-            kind="required"
-            filled={isFieldFilled(recipeState, field)}
-          />
-        ))}
-        {plan.optional.map((field) => (
-          <PlanRow
-            key={`opt-${field}`}
-            field={field}
-            kind="optional"
-            filled={isFieldFilled(recipeState, field)}
-          />
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function PlanRow({
-  field,
-  kind,
-  filled,
-}: {
-  field: RecipeField;
-  kind: "required" | "optional";
-  filled: boolean;
-}): React.ReactElement {
-  return (
-    <li className={`plan-row plan-${kind} ${filled ? "plan-filled" : "plan-empty"}`}>
-      <span className="plan-marker" aria-hidden="true">
-        {filled ? "✓" : "○"}
-      </span>
-      <span className="plan-label">{FIELD_LABELS[field]}</span>
-      {kind === "optional" ? <span className="plan-optional">선택</span> : null}
-    </li>
-  );
-}
-
-function ContextMetaCardMini({
-  context,
-}: {
-  context: ContextUsed;
-}): React.ReactElement {
-  const empty =
-    context.cold_start ||
-    (context.known_issues_count === 0 && context.traits_applied.length === 0);
-
-  return (
-    <div className="context-meta-card context-meta-card-mini" aria-label="컨텍스트 메타">
-      <div className="meta-head">
-        <span className="meta-title">이 응답이 참고한 것</span>
-      </div>
-      {empty ? (
-        <div className="meta-empty">
-          {context.cold_start
-            ? "이번이 첫 시작 — 학습된 컨텍스트 없음 (맹탕 모드)"
-            : "아직 뚜렷한 컨텍스트 없음"}
-        </div>
-      ) : (
-        <div className="meta-rows">
-          {context.known_issues_count > 0 ? (
-            <div className="meta-row">
-              <span className="meta-label">known_issues</span>
-              <span className="meta-val">{context.known_issues_count}개 회귀 방지</span>
-            </div>
-          ) : null}
-          {context.traits_applied.length > 0 ? (
-            <div className="meta-row">
-              <span className="meta-label">traits</span>
-              <div className="meta-trait-chips">
-                {context.traits_applied.map((t) => (
-                  <span key={t.key} className="meta-trait-chip">
-                    {t.label}
-                    <em>{Math.round(t.confidence * 100)}%</em>
-                  </span>
-                ))}
-              </div>
-            </div>
-          ) : null}
-        </div>
-      )}
     </div>
   );
 }
