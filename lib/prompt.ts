@@ -325,11 +325,11 @@ function renderOutputContract(): string {
     "### message 규율",
     "- `message` 는 사용자에게 그대로 보이는 대화다. 선택지를 본문에 나열·언급하지 마라 — 선택지는 `options` 배열로만 (화면엔 칩으로 보인다). multi 일 때도 \"여러 개 골라도 돼\" 정도만, 항목을 줄줄 읊지 마라.",
     "### new_state.ingredients 형식 (역할 분화)",
-    "각 재료는 `{ \"name\", \"amount\", \"role\", \"prep\"?, \"optional\"? }`. **role 로 분류**한다: 주재료=main / 부재료=sub / 양념·소스=seasoning / 고명·곁들임=garnish. prep 은 손질(예: \"다진\", \"채썬\"), optional 은 없어도 되면 true. amount 는 분량 문자열(예: \"2큰술\", \"200g\", \"1개\").",
+    "각 재료는 `{ \"name\", \"amount\", \"role\", \"prep\"?, \"optional\"? }`. **모든 재료에 role 을 반드시 붙인다(생략 금지)**: 주재료=main / 부재료=sub / 양념·소스=seasoning / 고명·곁들임=garnish. prep 은 손질(예: \"다진\", \"채썬\"), optional 은 없어도 되면 true. amount 는 분량 문자열(예: \"2큰술\", \"200g\", \"1개\").",
     "### new_state.steps 형식 (D-005 강제)",
     "steps 를 출력할 때 각 원소는 반드시 `{ \"text\": string, \"timer_sec\": number }` 형태다. **타이머가 필요 없는 스텝도 `timer_sec: 0` 을 명시**한다. 텍스트에 \"3분\"이라 쓰고 timer_sec 를 생략하는 패턴은 금지 — Cook Mode 가 텍스트를 파싱하지 않는다.",
     "### new_state.taste / new_state.texture 형식",
-    "값은 0~10 정수 게이지. 범위를 벗어나면 서버가 클램프하지만, 가능한 한 0~10 안에서 결정한다.",
+    "값은 0~10 정수 게이지. **현재 단계가 taste 이면 new_state 에 taste(spicy·salty·sweet·sour·umami·fatty 6축)와 texture(crispy·soft·chewy·soupy·thick 5축)를 반드시 채운다** — 맛 조절 요청(\"매콤하게\" 등)이면 해당 축을 올려 반영. 범위를 벗어나면 서버가 클램프.",
     "### new_state 의 패치 규율 (D-002)",
     "이미 확정된 필드는 다시 보내지 않는다 — 이번 턴에 **새로 확정되거나 사용자가 명시적으로 수정 요청한 필드만** 포함한다. 변경이 전혀 없으면 `new_state: null` 로 보낸다.",
   ].join("\n");
